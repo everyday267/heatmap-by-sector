@@ -30,7 +30,7 @@ def _won(n: float) -> str:
 def _render_text(fc: RouteForecast, show_basis: bool = False) -> str:
     lines: List[str] = []
     lines.append("=" * 64)
-    lines.append(f" 노선 {fc.route_no}  예상 표준운송원가(정산기준액)")
+    lines.append(f" 노선 {fc.route_no}  예상 표준운송원가(사업자 수령액)")
     lines.append("=" * 64)
     fleet_desc = ", ".join(f"{f.vehicle_type} {f.vehicles:g}대" for f in fc.fleets)
     lines.append(f" 운행대수 : {fleet_desc}")
@@ -55,8 +55,8 @@ def _render_text(fc: RouteForecast, show_basis: bool = False) -> str:
         for cat in fc.category_amounts:
             lines.append(f"  - {cat}: {CATEGORY_BASIS.get(cat, '')}")
     lines.append("")
-    lines.append(" ※ 이 금액은 노선입찰제에서 인정되는 표준운송원가(정산기준액)이며,")
-    lines.append("    실제 재정지원금 = 표준운송원가 − 실제 운송수입금(요금·광고 등)입니다.")
+    lines.append(" ※ 총액 정산 방식: 사업자는 표준운송원가 전액을 수령합니다(= 예상 수령액).")
+    lines.append("    요금 등 운송수입금은 관할관청(용인시)에 귀속됩니다.")
     return "\n".join(lines)
 
 
