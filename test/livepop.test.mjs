@@ -74,16 +74,31 @@ test("fetchLivePopDay: 1000행씩 넘기고, 인증키는 오류 메시지에서
   await assert.rejects(fetchLivePopDay("20260920", { key: "" }), (e) => e.auth === true);
 });
 
-test("findLatestDate: 자료가 있는 가장 최근 날을 이틀 전부터 거슬러 찾는다", async () => {
+test("findLatestDate: 날짜 조건 없이 첫·마지막 행으로 최근 날짜를 찾고, 그 날짜로 조회되는지 확인", async () => {
   const asked = [];
   const fetchImpl = async (u) => {
-    const date = u.split("/").at(-1);
-    asked.push(date);
-    return { text: async () => (date <= "20260920" ? ok([row(date, 0, "x")]) : JSON.stringify({ RESULT: { CODE: "INFO-200", MESSAGE: "없음" } })) };
+    const parts = u.split("/");
+    asked.push(parts.slice(-3).join("/"));
+    const [start, , date] = parts.slice(-3);
+    if (!date) return { text: async () => ok([row(start === "1" ? "20260801" : "20260920", 0, "x")], 5000) };
+    return { text: async () => (date === "20260920" ? ok([row(date, 0, "x")]) : JSON.stringify({ RESULT: { CODE: "INFO-200", MESSAGE: "없음" } })) };
   };
-  const d = await findLatestDate({ key: "k", fetchImpl, now: new Date(Date.UTC(2026, 8, 25)) });
-  assert.equal(d, "20260920");
-  assert.deepEqual(asked, ["20260923", "20260922", "20260921", "20260920"]);
+  assert.equal(await findLatestDate({ key: "k", fetchImpl }), "20260920");
+  assert.deepEqual(asked, ["1/1/", "5000/5000/", "1/1/20260920"]);
+});
+
+test("findLatestDate: 날짜 조건이 안 먹으면 하루씩 거슬러 찾고, 끝내 없으면 응답을 담아 알린다", async () => {
+  const fetchImpl = async (u) => {
+    const date = u.split("/").at(-1);
+    if (!date) return { text: async () => ok([row("20260920", 0, "x")], 1) };
+    return { text: async () => (date === "20260918" ? ok([row(date, 0, "x")]) : JSON.stringify({ RESULT: { CODE: "INFO-200", MESSAGE: "없음" } })) };
+  };
+  assert.equal(await findLatestDate({ key: "k", fetchImpl, now: new Date(Date.UTC(2026, 8, 25)) }), "20260918");
+
+  const never = async (u) => ({
+    text: async () => (u.endsWith("/") ? ok([row("2026-09-20", 0, "x")], 1) : JSON.stringify({ RESULT: { CODE: "INFO-200", MESSAGE: "없음" } })),
+  });
+  await assert.rejects(findLatestDate({ key: "k", fetchImpl: never, maxBack: 3 }), /날짜 조건 전달 방식.*INFO-200/s);
 });
 
 test("dayType: 토·일은 주말", () => {

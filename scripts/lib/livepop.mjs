@@ -123,26 +123,63 @@ export async function fetchLivePopDay(date, { key, fetchImpl = fetch } = {}) {
 export const ymd = (d) =>
   `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}${String(d.getUTCDate()).padStart(2, "0")}`;
 
-/** 자료가 있는 가장 최근 날짜를 찾는다(보통 며칠 늦게 올라온다). 한 행만 받아 본다. */
-export async function findLatestDate({ key, fetchImpl = fetch, now = new Date(), maxBack = 40, log = () => {} } = {}) {
+async function getPage(url, key, fetchImpl) {
+  const text = await (await fetchImpl(url)).text();
+  try {
+    return { ...parseLivePopResponse(text), text };
+  } catch (err) {
+    err.message = mask(err.message, key);
+    throw err;
+  }
+}
+
+/** 날짜 조건 없이 몇 행 받아 본다(전체 건수, 실제 날짜 형식 확인용). */
+async function peekUnfiltered(key, fetchImpl, start, end) {
+  const url = `${LIVEPOP_BASE}/${encodeURIComponent(key)}/json/${LIVEPOP_SERVICE}/${start}/${end}/`;
+  return getPage(url, key, fetchImpl);
+}
+
+/**
+ * 자료가 있는 가장 최근 날짜를 찾는다.
+ * 1) 날짜 조건 없이 첫 행·마지막 행의 기준일을 보고 가장 최근 날짜를 고른 뒤, 그 날짜로 조회가 되는지 확인
+ * 2) 안 되면 이틀 전부터 하루씩 거슬러 날짜 조건으로 찾아본다
+ * 끝내 못 찾으면 원인을 볼 수 있게 날짜 조건 없는 응답 앞부분을 오류에 담는다.
+ */
+export async function findLatestDate({ key, fetchImpl = fetch, now = new Date(), maxBack = 120, log = () => {} } = {}) {
+  if (!key) throw Object.assign(new Error("SEOUL_OPENAPI_KEY가 비어 있습니다."), { auth: true });
+  const notes = [];
+
+  const first = await peekUnfiltered(key, fetchImpl, 1, 1);
+  if (!first.empty) {
+    assertShape(first.rows);
+    const dates = [mapLivePopRow(first.rows[0]).date];
+    if (first.totalCount > 1) {
+      const last = await peekUnfiltered(key, fetchImpl, first.totalCount, first.totalCount);
+      if (!last.empty) dates.push(mapLivePopRow(last.rows[0]).date);
+    }
+    const candidate = dates.sort().at(-1);
+    log(`  날짜 조건 없이: 전체 ${first.totalCount.toLocaleString()}행, 첫·마지막 행 기준일 ${dates.join(" / ")}`);
+    const check = await getPage(livePopUrl(key, 1, 1, candidate), key, fetchImpl);
+    if (!check.empty) {
+      log(`  최근 자료일: ${candidate}`);
+      return candidate;
+    }
+    notes.push(`기준일 ${candidate}로 조회하면 데이터 없음 → 날짜 조건 전달 방식이 다를 수 있음. 응답: ${mask(check.text, key).slice(0, 300)}`);
+  } else {
+    notes.push(`날짜 조건 없이도 데이터 없음. 응답: ${mask(first.text, key).slice(0, 300)}`);
+  }
+
   for (let back = 2; back <= maxBack; back++) {
     const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - back));
     const date = ymd(d);
-    const res = await fetchImpl(livePopUrl(key, 1, 1, date));
-    let page;
-    try {
-      page = parseLivePopResponse(await res.text());
-    } catch (err) {
-      err.message = mask(err.message, key);
-      throw err;
-    }
+    const page = await getPage(livePopUrl(key, 1, 1, date), key, fetchImpl);
     if (!page.empty) {
       assertShape(page.rows);
       log(`  최근 자료일: ${date}`);
       return date;
     }
   }
-  throw new Error(`최근 ${maxBack}일 안에 생활인구 자료가 없습니다.`);
+  throw new Error(`최근 ${maxBack}일 안에 날짜 조건으로 찾은 생활인구 자료가 없습니다.\n  ${notes.join("\n  ")}`);
 }
 
 /** 날짜 문자열의 요일로 평일/주말 구분 (공휴일은 따로 보지 않음). */
