@@ -11,7 +11,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { loadEnv } from "./lib/env.mjs";
-import { aggregateLivePop, fetchLivePopDay, findLatestDate, mapLivePopRow, matchCodesByOrder, ymd } from "./lib/livepop.mjs";
+import { aggregateLivePop, fetchLivePopDay, findLatestDate, mapLivePopRow, matchCodesByProximity, ymd } from "./lib/livepop.mjs";
 import { normalizeDongName } from "../src/population.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -70,7 +70,7 @@ try {
     } catch {
       console.log("  주민등록 인구 파일이 없어 코드 맞추기를 확인할 수 없습니다.");
     }
-    const { aliases, log } = matchCodesByOrder(
+    const { aliases, log } = matchCodesByProximity(
       unmatchedDongs,
       unmatchedCodes,
       (c) => (night.get(c) ? night.get(c).sum / night.get(c).n : 0),

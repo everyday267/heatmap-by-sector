@@ -8,7 +8,7 @@ import {
   aggregateLivePop,
   dayType,
   livePopUrl,
-  matchCodesByOrder,
+  matchCodesByProximity,
 } from "../scripts/lib/livepop.mjs";
 import { livePopulationView, POP_BASES } from "../src/population.js";
 
@@ -141,22 +141,37 @@ test("livePopulationView: 기준의 시간대 평균, 심야는 평일:주말 5:
   assert.ok(POP_BASES.some((b) => b.key === "live-wd-evening"));
 });
 
-test("matchCodesByOrder: 같은 구 안에서 코드 순서대로 짝짓고 새벽 인구로 확인", () => {
+test("matchCodesByProximity: 가까운 코드부터, 새벽 인구로 확인되는 첫 코드와 연결", () => {
+  // 실제 강북구 사례: 상가 쪽 595/603/608/615, 생활인구 쪽 590/600/606/610 + 범위 밖 동 620/630/645
   const dongs = [
-    { name: "번2동", code: "11305603" },
     { name: "번1동", code: "11305595" },
+    { name: "번2동", code: "11305603" },
+    { name: "번3동", code: "11305608" },
     { name: "수유1동", code: "11305615" },
   ];
-  const codes = ["11305600", "11305590", "11305610"];
-  const night = { 11305590: 15000, 11305600: 13500, 11305610: 40000 };
-  const resident = { 번1동: 15825, 번2동: 14073, 수유1동: 19210 };
-  const { aliases, log } = matchCodesByOrder(dongs, codes, (c) => night[c], (n) => resident[n]);
-  assert.deepEqual([...aliases.entries()].sort(), [["11305590", "11305595"], ["11305600", "11305603"]]);
-  assert.match(log.join("\n"), /수유1동.*2\.08 → 버림/);
+  const codes = ["11305590", "11305600", "11305606", "11305610", "11305620", "11305630", "11305645"];
+  const night = { 11305590: 15500, 11305600: 13800, 11305606: 15000, 11305610: 19000, 11305620: 19500, 11305630: 22000, 11305645: 19000 };
+  const resident = { 번1동: 15825, 번2동: 14073, 번3동: 15254, 수유1동: 19210 };
+  const { aliases, log } = matchCodesByProximity(dongs, codes, (c) => night[c], (n) => resident[n]);
+  assert.deepEqual(Object.fromEntries(aliases), {
+    11305590: "11305595",
+    11305600: "11305603",
+    11305606: "11305608",
+    11305610: "11305615",
+  });
+  assert.equal(log.length, 4);
 });
 
-test("matchCodesByOrder: 개수가 다르면 맞추지 않고 이유를 남긴다", () => {
-  const { aliases, log } = matchCodesByOrder([{ name: "번1동", code: "11305595" }], ["11305590", "11305600"], () => 1, () => 1);
-  assert.equal(aliases.size, 0);
-  assert.match(log[0], /개수가 달라/);
+test("matchCodesByProximity: 가까워도 인구가 안 맞으면 다음 후보, 없으면 연결하지 않는다", () => {
+  const night = { 11305600: 50000, 11305590: 15000 };
+  const r = matchCodesByProximity([{ name: "번1동", code: "11305598" }], ["11305600", "11305590"], (c) => night[c], () => 15000);
+  assert.deepEqual(Object.fromEntries(r.aliases), { 11305590: "11305598" });
+
+  const none = matchCodesByProximity([{ name: "번1동", code: "11305595" }], ["11305600"], () => 90000, () => 15000);
+  assert.equal(none.aliases.size, 0);
+  assert.match(none.log[0], /연결 못 함.*11305600\(6\.00\)/);
+
+  // 다른 구 코드는 후보가 아니다
+  const other = matchCodesByProximity([{ name: "번1동", code: "11305595" }], ["11290595"], () => 15000, () => 15000);
+  assert.equal(other.aliases.size, 0);
 });

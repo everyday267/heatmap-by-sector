@@ -189,11 +189,13 @@ export const dayType = (date) => {
 };
 
 const toCode8 = (code) => String(code ?? "").slice(0, 8);
+const round1 = (x) => Math.round(x * 10) / 10;
 
 /**
  * 행정동 코드 체계 차이(행정안전부 ↔ 통계청)로 짝을 못 찾은 동을 맞춘다.
- * 같은 시군구 안에서 짝 없는 코드 수가 같으면 코드 순서대로 짝짓고, 새벽 생활인구가
- * 주민등록 인구와 비슷한지(0.6~1.6배)로 하나하나 확인한다. 확인 안 된 짝은 버린다.
+ * 같은 시군구 안의 짝 없는 생활인구 코드를 숫자가 가까운 순으로 후보로 보고, 새벽 생활인구가
+ * 주민등록 인구와 비슷한(0.6~1.6배) 첫 코드와 연결한다. 확인되는 코드가 없으면 연결하지 않는다.
+ * (생활인구 쪽에는 데이터 범위 밖 동의 코드도 섞여 있어 개수로는 맞출 수 없다.)
  *
  * @param {{ name, code }[]} unmatchedDongs  생활인구 코드가 없는 데이터셋 동
  * @param {string[]} unmatchedCodes           데이터셋에 없는 생활인구 코드 (같은 시군구들)
@@ -201,31 +203,37 @@ const toCode8 = (code) => String(code ?? "").slice(0, 8);
  * @param {(name) => number|undefined} residentPop  주민등록 인구
  * @returns {{ aliases: Map<liveCode, datasetCode>, log: string[] }}
  */
-export function matchCodesByOrder(unmatchedDongs, unmatchedCodes, nightPop, residentPop) {
+export function matchCodesByProximity(unmatchedDongs, unmatchedCodes, nightPop, residentPop) {
   const aliases = new Map();
   const log = [];
-  const bySgg = (code) => toCode8(code).slice(0, 5);
-  const sggs = new Set([...unmatchedDongs.map((d) => bySgg(d.code)), ...unmatchedCodes.map(bySgg)]);
-  for (const sgg of sggs) {
-    const dongs = unmatchedDongs.filter((d) => bySgg(d.code) === sgg).sort((a, b) => toCode8(a.code).localeCompare(toCode8(b.code)));
-    const codes = unmatchedCodes.filter((c) => bySgg(c) === sgg).sort();
-    if (!dongs.length) continue;
-    if (dongs.length !== codes.length) {
-      log.push(`${sgg}: 짝 없는 동 ${dongs.length}개(${dongs.map((d) => `${d.name}:${toCode8(d.code)}`).join(", ")}) ↔ 생활인구 코드 ${codes.length}개(${codes.join(", ")}) — 개수가 달라 맞추지 않음`);
-      continue;
+  const taken = new Set();
+  const sgg = (code) => toCode8(code).slice(0, 5);
+  for (const d of [...unmatchedDongs].sort((a, b) => toCode8(a.code).localeCompare(toCode8(b.code)))) {
+    const own = Number(toCode8(d.code));
+    const res = residentPop(d.name);
+    const candidates = unmatchedCodes
+      .filter((c) => sgg(c) === sgg(d.code) && !taken.has(c))
+      .sort((a, b) => Math.abs(Number(a) - own) - Math.abs(Number(b) - own));
+    const tried = [];
+    let hit = null;
+    for (const c of candidates) {
+      const ratio = res ? nightPop(c) / res : NaN;
+      tried.push(`${c}(${Number.isFinite(ratio) ? ratio.toFixed(2) : "?"})`);
+      if (ratio >= 0.6 && ratio <= 1.6) {
+        hit = { c, ratio };
+        break;
+      }
     }
-    dongs.forEach((d, i) => {
-      const live = nightPop(codes[i]);
-      const res = residentPop(d.name);
-      const ratio = res ? live / res : NaN;
-      const ok = ratio >= 0.6 && ratio <= 1.6;
-      log.push(`${d.name}:${toCode8(d.code)} ↔ ${codes[i]} 새벽 생활인구 ${Math.round(live)} / 주민등록 ${res ?? "?"} = ${Number.isFinite(ratio) ? ratio.toFixed(2) : "?"} ${ok ? "→ 연결" : "→ 버림"}`);
-      if (ok) aliases.set(codes[i], toCode8(d.code));
-    });
+    if (hit) {
+      taken.add(hit.c);
+      aliases.set(hit.c, toCode8(d.code));
+      log.push(`${d.name}:${toCode8(d.code)} → ${hit.c} (새벽 생활인구/주민등록 ${hit.ratio.toFixed(2)})`);
+    } else {
+      log.push(`${d.name}:${toCode8(d.code)} 연결 못 함 — 주민등록 ${res ?? "?"}, 후보 ${tried.join(", ") || "없음"}`);
+    }
   }
   return { aliases, log };
 }
-const round1 = (x) => Math.round(x * 10) / 10;
 
 /**
  * 여러 날의 행 → 행정동별 평일/주말 × 24시간 평균.
