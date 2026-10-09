@@ -12,7 +12,7 @@
 
 ## 실행
 
-Node.js 18+만 있으면 됩니다. 설치할 패키지는 없습니다.
+Node.js 22 이상(LTS)만 있으면 됩니다. 설치할 패키지는 없습니다.
 
 ```bash
 npm start          # http://localhost:8000
