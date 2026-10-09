@@ -11,7 +11,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { loadEnv } from "./lib/env.mjs";
-import { aggregateLivePop, fetchLivePopDay, findLatestDate, mapLivePopRow, ymd } from "./lib/livepop.mjs";
+import { aggregateLivePop, fetchLivePopDay, findLatestDate, mapLivePopRow, matchCodesByOrder, ymd } from "./lib/livepop.mjs";
+import { normalizeDongName } from "../src/population.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const DATA = join(ROOT, "data");
@@ -27,6 +28,8 @@ loadEnv();
 const key = (process.env.SEOUL_OPENAPI_KEY ?? "").trim();
 const dataset = JSON.parse(readFileSync(join(DATA, `${args.id}.json`), "utf8"));
 const wanted = new Set(dataset.meta.dongs.filter((d) => d.code).map((d) => String(d.code).slice(0, 8)));
+// 코드 체계가 어긋난 동을 맞추려고 데이터셋 시군구의 행은 모두 남긴다.
+const sggs = new Set([...wanted].map((c) => c.slice(0, 5)));
 if (!wanted.size) {
   console.error("데이터셋에 행정동 코드가 없습니다. 상가 데이터를 다시 수집하세요(npm run fetch:gileum2).");
   process.exit(1);
@@ -40,10 +43,44 @@ try {
   const rows = [];
   for (const date of dates) {
     const day = await fetchLivePopDay(date, { key });
-    // 서울 전체 행정동이 오므로 데이터셋 동만 남긴다.
-    const mine = day.map(mapLivePopRow).filter((r) => r && wanted.has(r.code.slice(0, 8)));
+    // 서울 전체 행정동이 오므로 데이터셋 시군구만 남긴다.
+    const mine = day.map(mapLivePopRow).filter((r) => r && sggs.has(r.code.slice(0, 5)));
     rows.push(...mine);
     console.log(`  ${date}: ${day.length}행 중 ${mine.length}행`);
+  }
+
+  // 코드가 어긋난 동 맞추기: 새벽(3~5시) 평균 생활인구를 주민등록 인구와 비교해 확인한다.
+  const liveCodes = new Set(rows.map((r) => r.code.slice(0, 8)));
+  const unmatchedDongs = dataset.meta.dongs.filter((d) => d.code && !liveCodes.has(String(d.code).slice(0, 8)));
+  if (unmatchedDongs.length) {
+    const unmatchedCodes = [...liveCodes].filter((c) => !wanted.has(c));
+    const night = new Map();
+    for (const r of rows) {
+      if (r.hour < 3 || r.hour > 4) continue;
+      const c = r.code.slice(0, 8);
+      const n = night.get(c) ?? { sum: 0, n: 0 };
+      n.sum += r.total;
+      n.n++;
+      night.set(c, n);
+    }
+    let resident = new Map();
+    try {
+      const pop = JSON.parse(readFileSync(join(DATA, `${args.id}-population.json`), "utf8"));
+      resident = new Map(pop.dongs.map((d) => [normalizeDongName(d.name), d.total]));
+    } catch {
+      console.log("  주민등록 인구 파일이 없어 코드 맞추기를 확인할 수 없습니다.");
+    }
+    const { aliases, log } = matchCodesByOrder(
+      unmatchedDongs,
+      unmatchedCodes,
+      (c) => (night.get(c) ? night.get(c).sum / night.get(c).n : 0),
+      (name) => resident.get(normalizeDongName(name)),
+    );
+    log.forEach((l) => console.log(`  [코드 맞추기] ${l}`));
+    for (const r of rows) {
+      const alias = aliases.get(r.code.slice(0, 8));
+      if (alias) r.code = alias;
+    }
   }
 
   const { dongs, missing } = aggregateLivePop(rows, dataset.meta.dongs);

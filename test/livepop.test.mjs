@@ -8,6 +8,7 @@ import {
   aggregateLivePop,
   dayType,
   livePopUrl,
+  matchCodesByOrder,
 } from "../scripts/lib/livepop.mjs";
 import { livePopulationView, POP_BASES } from "../src/population.js";
 
@@ -138,4 +139,24 @@ test("livePopulationView: 기준의 시간대 평균, 심야는 평일:주말 5:
   assert.equal(livePopulationView(live, "live-wd").dongs[0].ages.length, 11);
   assert.throws(() => livePopulationView(live, "resident"));
   assert.ok(POP_BASES.some((b) => b.key === "live-wd-evening"));
+});
+
+test("matchCodesByOrder: 같은 구 안에서 코드 순서대로 짝짓고 새벽 인구로 확인", () => {
+  const dongs = [
+    { name: "번2동", code: "11305603" },
+    { name: "번1동", code: "11305595" },
+    { name: "수유1동", code: "11305615" },
+  ];
+  const codes = ["11305600", "11305590", "11305610"];
+  const night = { 11305590: 15000, 11305600: 13500, 11305610: 40000 };
+  const resident = { 번1동: 15825, 번2동: 14073, 수유1동: 19210 };
+  const { aliases, log } = matchCodesByOrder(dongs, codes, (c) => night[c], (n) => resident[n]);
+  assert.deepEqual([...aliases.entries()].sort(), [["11305590", "11305595"], ["11305600", "11305603"]]);
+  assert.match(log.join("\n"), /수유1동.*2\.08 → 버림/);
+});
+
+test("matchCodesByOrder: 개수가 다르면 맞추지 않고 이유를 남긴다", () => {
+  const { aliases, log } = matchCodesByOrder([{ name: "번1동", code: "11305595" }], ["11305590", "11305600"], () => 1, () => 1);
+  assert.equal(aliases.size, 0);
+  assert.match(log[0], /개수가 달라/);
 });
