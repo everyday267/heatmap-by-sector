@@ -1,11 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { SamplePlaceSource, SampleGeocoder } from "../src/sources/sample.js";
+import { SampleGeocoder } from "../src/sources/sample.js";
+import { StaticPlaceSource } from "../src/sources/static.js";
 import { LANDMARKS, SAMPLE_BOUNDS } from "../src/sources/sample-landmarks.js";
 
 const data = JSON.parse(readFileSync(new URL("../data/sample.json", import.meta.url)));
-const source = new SamplePlaceSource(data);
+const source = new StaticPlaceSource(data);
 const geocoder = new SampleGeocoder();
 
 test("sample.json: 모든 업소가 샘플 범위 안, 업종 코드가 유효", () => {
@@ -19,13 +20,13 @@ test("sample.json: 모든 업소가 샘플 범위 안, 업종 코드가 유효",
   assert.equal(new Set(data.places.map((p) => p.id)).size, data.places.length);
 });
 
-test("SamplePlaceSource: 업종명·대분류를 채운다", async () => {
+test("StaticPlaceSource: 업종명·대분류를 채운다", async () => {
   const [p] = await source.query({ lat: 37.4979, lng: 127.0276 }, 300, "cafe");
   assert.equal(p.categoryName, "카페");
   assert.equal(p.categoryMajor, "음식");
 });
 
-test("SamplePlaceSource.query: 업종 필터 + 반경", async () => {
+test("StaticPlaceSource.query: 업종 필터 + 반경", async () => {
   const center = LANDMARKS.find((l) => l.id === "daechi");
   const academies = await source.query(center, 500, "academy");
   assert.ok(academies.length > 0);
@@ -74,4 +75,10 @@ test("SampleGeocoder: 모르는 주소·빈 입력은 null", async () => {
   assert.equal(await geocoder.geocode("   "), null);
   assert.equal(await geocoder.geocode("부산 해운대구"), null);
   assert.equal(await geocoder.geocode("역"), null);
+});
+
+test("StaticPlaceSource.categories: 개수가 없으면 업소 수로 채운다", async () => {
+  const cats = await source.categories();
+  const cafe = cats.find((c) => c.code === "cafe");
+  assert.equal(cafe.count, data.places.filter((p) => p.categoryCode === "cafe").length);
 });

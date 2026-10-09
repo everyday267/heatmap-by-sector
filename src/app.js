@@ -1,12 +1,14 @@
-// UI 배선 (DESIGN.md §6, Phase 3). 데이터는 PlaceSource/Geocoder 인터페이스로만 접근한다.
+// UI 배선 (DESIGN.md §6). 데이터는 PlaceSource/Geocoder 인터페이스로만 접근한다.
+// 어떤 데이터셋을 쓸지는 data/datasets.json과 ?data= 파라미터로 정한다.
 /* global L */
 
 import { computeDensity, interpret, formatDistance } from "./geo.js";
-import { SamplePlaceSource, SampleGeocoder } from "./sources/sample.js";
-import { SAMPLE_BOUNDS } from "./sources/sample-landmarks.js";
+import { StaticPlaceSource } from "./sources/static.js";
+import { SampleGeocoder } from "./sources/sample.js";
+import { ApiGeocoder, ChainGeocoder, DatasetGeocoder } from "./sources/geocoders.js";
 
-const DEFAULTS = { cat: "cafe", q: "강남역", r: 500 };
 const NEAREST_LIMIT = 10;
+const COMPARE_LIMIT = 10;
 const LEVEL_CLASS = { 낮음: "low", 보통: "mid", 높음: "high", 매우높음: "very-high" };
 
 // 주변 평균·히트맵에 쓰는 더 넓은 반경.
@@ -19,25 +21,86 @@ const el = (tag, props = {}, ...children) => {
   return node;
 };
 
+async function getJson(path) {
+  const r = await fetch(path);
+  if (!r.ok) throw new Error(`${path} ${r.status}`);
+  return r.json();
+}
+
+async function loadDataset(params) {
+  const manifest = await getJson("data/datasets.json");
+  const wanted = params.get("data") ?? manifest.default;
+  const entry = manifest.datasets.find((d) => d.id === wanted) ?? manifest.datasets[0];
+  return { manifest, entry, data: await getJson(entry.file) };
+}
+
+function makeGeocoder(meta) {
+  if (meta.kind === "sample") {
+    const g = new SampleGeocoder();
+    return { geocoder: g, suggestions: g.suggestions(), hint: "강남구 일대 지명(강남역, 역삼동, 대치동 …)" };
+  }
+  const api = new ApiGeocoder({ near: meta.focus });
+  return {
+    geocoder: new ChainGeocoder([
+      new DatasetGeocoder(meta, { mode: "exact" }), // 좌표, "길음2동"
+      api, // 카카오: 도로명·지번 주소, 역·건물 이름
+      new DatasetGeocoder(meta, { mode: "fuzzy" }), // "길음" → 길음1동/2동
+    ]),
+    suggestions: new DatasetGeocoder(meta).suggestions(meta.focus?.name),
+    api,
+    hint: "행정동 이름(예: 길음2동)",
+  };
+}
+
+function groupByCategory(places) {
+  const m = new Map();
+  for (const p of places) {
+    if (!m.has(p.categoryCode)) m.set(p.categoryCode, []);
+    m.get(p.categoryCode).push(p);
+  }
+  return m;
+}
+
+const inBounds = (b, p) => p.lat >= b.south && p.lat <= b.north && p.lng >= b.west && p.lng <= b.east;
+
 async function main() {
-  const data = await fetch("data/sample.json").then((r) => {
-    if (!r.ok) throw new Error(`data/sample.json ${r.status}`);
-    return r.json();
-  });
-  const source = new SamplePlaceSource(data);
-  const geocoder = new SampleGeocoder();
+  const params = new URLSearchParams(location.search);
+  const { manifest, entry, data } = await loadDataset(params);
+  const { meta } = data;
+  const source = new StaticPlaceSource(data);
+  const { geocoder, suggestions, api, hint } = makeGeocoder(meta);
   const categories = await source.categories();
   const categoryByCode = new Map(categories.map((c) => [c.code, c]));
 
-  // --- 컨트롤 채우기 ---
+  // --- 데이터셋 표시·전환 ---
+  $("dataset-badge").textContent =
+    meta.kind === "sample"
+      ? "샘플 데이터 (가짜 업소)"
+      : `실데이터 · 상가정보${meta.stdrYm ? ` ${String(meta.stdrYm).replace(/^(\d{4})(\d{2})$/, "$1.$2")} 기준` : ""}`;
+  $("dataset-badge").classList.toggle("is-real", meta.kind !== "sample");
+  $("dataset-badge").title = meta.note ?? "";
+  const datasetSelect = $("dataset");
+  datasetSelect.append(
+    ...manifest.datasets.map((d) => el("option", { value: d.id, textContent: d.label, selected: d.id === entry.id })),
+  );
+  datasetSelect.addEventListener("change", () => {
+    location.search = `?${new URLSearchParams({ data: datasetSelect.value })}`;
+  });
+  $("data-source").textContent = meta.source
+    ? `데이터: ${meta.source.name}${meta.coverage?.length ? ` (${meta.coverage.join("·")} 수집)` : ""}`
+    : "데이터: scripts/generate-sample.mjs로 만든 가짜 샘플";
+
+  // --- 컨트롤 채우기: 대분류별 묶음, 업소가 많은 업종 먼저 ---
   const select = $("category");
   const groups = new Map();
-  for (const c of categories) {
-    if (!groups.has(c.major)) groups.set(c.major, el("optgroup", { label: c.major }));
-    groups.get(c.major).append(el("option", { value: c.code, textContent: c.name }));
+  for (const c of [...categories].sort((a, b) => b.count - a.count)) {
+    if (!groups.has(c.major)) groups.set(c.major, { total: 0, node: el("optgroup", { label: c.major || "기타" }) });
+    const g = groups.get(c.major);
+    g.total += c.count;
+    g.node.append(el("option", { value: c.code, textContent: `${c.name} (${c.count.toLocaleString("ko-KR")})` }));
   }
-  select.append(...groups.values());
-  $("address-suggestions").append(...geocoder.suggestions().map((s) => el("option", { value: s })));
+  select.append(...[...groups.values()].sort((a, b) => b.total - a.total).map((g) => g.node));
+  $("address-suggestions").append(...suggestions.map((s) => el("option", { value: s })));
 
   const radiusInput = $("radius");
   const syncRadiusLabel = () => {
@@ -46,16 +109,18 @@ async function main() {
   radiusInput.addEventListener("input", syncRadiusLabel);
 
   // --- 지도 ---
-  const map = L.map("map", { zoomControl: true }).setView([37.5045, 127.045], 14);
+  const b = meta.bounds;
+  const map = L.map("map", { zoomControl: true }).fitBounds([[b.south, b.west], [b.north, b.east]]);
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
   }).addTo(map);
 
-  L.rectangle(
-    [[SAMPLE_BOUNDS.south, SAMPLE_BOUNDS.west], [SAMPLE_BOUNDS.north, SAMPLE_BOUNDS.east]],
-    { className: "sample-bounds", interactive: false, fill: false },
-  ).addTo(map);
+  L.rectangle([[b.south, b.west], [b.north, b.east]], {
+    className: "data-bounds",
+    interactive: false,
+    fill: false,
+  }).addTo(map);
 
   // max: 업소 몇 곳이 겹쳐야 최고 강도(빨강)가 되는지. 1곳짜리 점은 옅게, 군집만 붉게.
   const heat = L.heatLayer([], {
@@ -80,18 +145,24 @@ async function main() {
   }
 
   function readUrl() {
-    const p = new URLSearchParams(location.search);
-    const cat = categoryByCode.has(p.get("cat")) ? p.get("cat") : DEFAULTS.cat;
-    const r = Number(p.get("r"));
+    const fallbackCat =
+      meta.defaults?.cat ?? categories.find((c) => c.name === "카페")?.code ?? categories[0]?.code;
+    const cat = categoryByCode.has(params.get("cat")) ? params.get("cat") : fallbackCat;
+    const r = Number(params.get("r"));
     return {
       cat,
-      q: p.get("q") || DEFAULTS.q,
-      r: r >= 100 && r <= 2000 ? Math.round(r / 100) * 100 : DEFAULTS.r,
+      q: params.get("q") || meta.defaults?.q || "",
+      r: r >= 100 && r <= 2000 ? Math.round(r / 100) * 100 : 500,
     };
   }
 
   function writeUrl() {
-    const p = new URLSearchParams({ cat: select.value, q: $("address").value.trim(), r: radiusInput.value });
+    const p = new URLSearchParams({
+      data: entry.id,
+      cat: select.value,
+      q: $("address").value.trim(),
+      r: radiusInput.value,
+    });
     history.replaceState(null, "", `?${p}`);
   }
 
@@ -99,12 +170,8 @@ async function main() {
     const q = $("address").value;
     const hit = await geocoder.geocode(q);
     if (!hit) {
-      showMessage(
-        `"${q.trim()}" 위치를 찾지 못했습니다. 샘플 단계에서는 강남구 일대 지명(예: ${geocoder
-          .suggestions()
-          .slice(0, 4)
-          .join(", ")})이나 "위도, 경도", 또는 지도 클릭을 사용하세요.`,
-      );
+      const apiNote = api && !api.available ? " (카카오 주소 검색이 꺼져 있어 도로명·지번 주소는 아직 못 찾습니다)" : "";
+      showMessage(`"${q.trim()}" 위치를 찾지 못했습니다. ${hint}, "위도, 경도", 또는 지도 클릭을 사용하세요.${apiNote}`);
       return;
     }
     state.center = { lat: hit.lat, lng: hit.lng };
@@ -121,9 +188,11 @@ async function main() {
     const { center } = state;
     const seq = ++state.seq;
 
-    const contextPlaces = await source.query(center, contextM, code);
+    // 넓은 반경의 전 업종을 한 번만 가져와 선택 업종 분석과 업종별 비교에 같이 쓴다.
+    const nearby = await source.query(center, contextM);
     if (seq !== state.seq) return;
-    const result = computeDensity(contextPlaces, center, radiusM, contextM);
+    const byCode = groupByCategory(nearby);
+    const result = computeDensity(byCode.get(code) ?? [], center, radiusM, contextM);
 
     // 지도
     heat.setLatLngs(result.heatPoints);
@@ -148,10 +217,9 @@ async function main() {
     if (fit) map.fitBounds(radiusCircle.getBounds(), { padding: [40, 40], maxZoom: 17 });
 
     // 패널
-    const inSample =
-      center.lat >= SAMPLE_BOUNDS.south && center.lat <= SAMPLE_BOUNDS.north &&
-      center.lng >= SAMPLE_BOUNDS.west && center.lng <= SAMPLE_BOUNDS.east;
-    showMessage(inSample ? "" : "샘플 데이터 범위(점선 사각형) 밖입니다. 업소가 없거나 적게 나옵니다.");
+    showMessage(
+      inBounds(b, center) ? "" : "데이터 범위(점선 사각형) 밖입니다. 업소가 없거나 실제보다 적게 나옵니다.",
+    );
 
     $("result").hidden = false;
     $("place-label").textContent = `📍 ${state.label}`;
@@ -181,24 +249,29 @@ async function main() {
         : [el("li", { className: "muted", textContent: "반경 안에 해당 업종이 없습니다." })]),
     );
 
-    await renderComparison(center, radiusM, contextM, code, seq);
+    renderComparison(byCode, center, radiusM, contextM, code);
     writeUrl();
   }
 
-  async function renderComparison(center, radiusM, contextM, selectedCode, seq) {
-    const rows = await Promise.all(
-      categories.map(async (c) => {
-        const places = await source.query(center, contextM, c.code);
-        const r = computeDensity(places, center, radiusM, contextM);
-        return { c, count: r.count, relative: r.relative, level: r.level };
-      }),
-    );
-    if (seq !== state.seq) return;
+  // 반경 안에 많은 업종 상위 N개 (+ 선택 업종이 빠졌으면 맨 아래에 추가).
+  function renderComparison(byCode, center, radiusM, contextM, selectedCode) {
+    const rows = [...byCode.entries()].map(([code, places]) => {
+      const r = computeDensity(places, center, radiusM, contextM);
+      return { c: categoryByCode.get(code), count: r.count, relative: r.relative, level: r.level };
+    });
     rows.sort((a, b) => b.count - a.count || (b.relative ?? 0) - (a.relative ?? 0));
-    const max = Math.max(1, ...rows.map((r) => r.count));
+    const shown = rows.filter((r) => r.count > 0).slice(0, COMPARE_LIMIT);
+    if (!shown.some((r) => r.c.code === selectedCode)) {
+      shown.push(rows.find((r) => r.c.code === selectedCode) ?? {
+        c: categoryByCode.get(selectedCode), count: 0, relative: null, level: "낮음",
+      });
+    }
+    const max = Math.max(1, ...shown.map((r) => r.count));
+    $("compare-title").textContent =
+      categories.length > COMPARE_LIMIT ? `반경 안에 많은 업종 상위 ${COMPARE_LIMIT}` : "이 위치의 업종별 비교";
 
     $("compare").replaceChildren(
-      ...rows.map(({ c, count, relative, level }) => {
+      ...shown.map(({ c, count, relative, level }) => {
         const btn = el(
           "button",
           {
@@ -251,7 +324,7 @@ async function main() {
   $("address").value = init.q;
   radiusInput.value = init.r;
   syncRadiusLabel();
-  await geocodeAndRun({ fit: true });
+  if (init.q) await geocodeAndRun({ fit: true });
 }
 
 main().catch((err) => {

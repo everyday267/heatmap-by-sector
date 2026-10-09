@@ -121,10 +121,13 @@ for (const cat of CATEGORIES) {
 
 const out = {
   meta: {
+    id: "sample",
+    label: "샘플 · 서울 강남구 일대",
+    kind: "sample",
     note: "가짜 샘플 데이터입니다. 실제 업소가 아닙니다. scripts/generate-sample.mjs로 생성.",
     seed: SEED,
-    region: "서울 강남구 일대",
     bounds: SAMPLE_BOUNDS,
+    defaults: { q: "강남역", cat: "cafe" },
     count: places.length,
   },
   categories: CATEGORIES.map(({ code, name, major }) => ({ code, name, major })),

@@ -11,7 +11,10 @@
   <header class="topbar">
     <div class="brand">
       <h1>업종 밀도 지도</h1>
-      <span class="badge-sample" title="scripts/generate-sample.mjs로 만든 가짜 데이터입니다">샘플 데이터 · 서울 강남구 일대</span>
+      <div class="brand-row">
+        <select id="dataset" aria-label="데이터셋"></select>
+        <span id="dataset-badge" class="badge-data"></span>
+      </div>
     </div>
 
     <form id="query-form" class="controls" autocomplete="off">
@@ -62,7 +65,7 @@
         <p id="headline" class="headline"></p>
         <p id="advice" class="advice"></p>
 
-        <h2>이 위치의 업종별 비교 <small>반경 내 개수 · 주변 평균 대비</small></h2>
+        <h2><span id="compare-title">이 위치의 업종별 비교</span> <small>개수 · 주변 대비</small></h2>
         <ol id="compare" class="compare"></ol>
 
         <h2>가까운 업소 <small id="nearest-count"></small></h2>
@@ -76,6 +79,7 @@
           <span class="legend-ends"><span>드묾</span><span>밀집</span></span>
         </div>
         <p>등급 기준(개/㎢): 낮음 &lt;5 · 보통 5–15 · 높음 15–40 · 매우높음 40+</p>
+        <p id="data-source"></p>
       </footer>
     </aside>
   </main>

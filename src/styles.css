@@ -33,8 +33,19 @@ body { display: flex; flex-direction: column; }
 }
 .brand { display: flex; flex-direction: column; gap: 4px; }
 .brand h1 { margin: 0; font-size: 18px; letter-spacing: -0.02em; }
-.badge-sample {
-  align-self: flex-start;
+.brand-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+#dataset {
+  height: 26px;
+  padding: 0 6px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  max-width: 100%;
+}
+.badge-data {
   font-size: 11px;
   padding: 2px 8px;
   border-radius: 999px;
@@ -42,6 +53,7 @@ body { display: flex; flex-direction: column; }
   color: #7a5b00;
   border: 1px solid #f1dd9a;
 }
+.badge-data.is-real { background: #e8f5ec; color: #1f6b3a; border-color: #bfe3cb; }
 
 .controls {
   flex: 1;
@@ -213,7 +225,7 @@ body { display: flex; flex-direction: column; }
 
 /* ---------- 지도 레이어 ---------- */
 .radius-circle { stroke: var(--accent); stroke-width: 2; fill: var(--accent); fill-opacity: 0.06; }
-.sample-bounds { stroke: #6b6b70; stroke-width: 1.5; stroke-dasharray: 6 6; }
+.data-bounds { stroke: #6b6b70; stroke-width: 1.5; stroke-dasharray: 6 6; }
 .place-dot { stroke: #1d1d1f; stroke-width: 1.5; fill: #ffffff; fill-opacity: 1; }
 .popup { font-size: 13px; line-height: 1.5; }
 
@@ -222,7 +234,6 @@ body { display: flex; flex-direction: column; }
   body { height: auto; }
   .topbar { flex-direction: column; align-items: stretch; }
   .brand { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; }
-  .brand .badge-sample { align-self: center; }
   .field, .field-radius { flex: 1 1 100%; }
   .layout { grid-template-columns: 1fr; }
   .map-wrap { height: 60vh; }

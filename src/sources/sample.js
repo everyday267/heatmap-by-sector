@@ -1,39 +1,13 @@
-// 샘플 데이터 어댑터 (DESIGN.md §4).
-// 실데이터 연동 시 같은 메서드를 가진 LocalDataPlaceSource / KakaoGeocoder로 교체한다.
+// 샘플 데이터셋 전용 지오코더 (DESIGN.md §4). 강남구 랜드마크 고정표로 주소를 찾는다.
+// 실데이터셋은 ./geocoders.js의 DatasetGeocoder + ApiGeocoder(카카오)를 쓴다.
 //
-// interface PlaceSource {
-//   query(center, radiusM, categoryCode?): Promise<Place[]>
-//   categories(): Promise<Category[]>
-// }
 // interface Geocoder {
 //   geocode(address): Promise<{ lat, lng, label } | null>
 // }
+// 업소 데이터는 StaticPlaceSource(./static.js)가 data/sample.json을 그대로 읽는다.
 
-import { withinRadius } from "../geo.js";
 import { LANDMARKS } from "./sample-landmarks.js";
-
-export class SamplePlaceSource {
-  /** @param {{ categories: Category[], places: Place[] }} data  data/sample.json 형식 */
-  constructor(data) {
-    this._categories = data.categories;
-    const byCode = new Map(data.categories.map((c) => [c.code, c]));
-    this._places = data.places.map((p) => {
-      const c = byCode.get(p.categoryCode);
-      return { ...p, categoryName: c?.name ?? p.categoryCode, categoryMajor: c?.major ?? "" };
-    });
-  }
-
-  async categories() {
-    return this._categories;
-  }
-
-  async query(center, radiusM, categoryCode) {
-    const pool = categoryCode
-      ? this._places.filter((p) => p.categoryCode === categoryCode)
-      : this._places;
-    return withinRadius(pool, center, radiusM);
-  }
-}
+import { parseCoords } from "./geocoders.js";
 
 // "서울 강남구 역삼동" → "역삼동". 공백으로 끝나는 접두어만 떼어 "강남구청역"은 보존.
 const normalize = (s) =>
@@ -42,9 +16,6 @@ const normalize = (s) =>
     .replace(/^(서울특별시|서울시|서울)\s+/, "")
     .replace(/^강남구\s+/, "")
     .replace(/\s+/g, "");
-
-// "37.4979, 127.0276" 같은 좌표 직접 입력.
-const COORD_RE = /^\s*(-?\d{1,2}(?:\.\d+)?)\s*[, ]\s*(-?\d{1,3}(?:\.\d+)?)\s*$/;
 
 export class SampleGeocoder {
   constructor(landmarks = LANDMARKS) {
@@ -59,14 +30,8 @@ export class SampleGeocoder {
   async geocode(address) {
     if (!address || !address.trim()) return null;
 
-    const m = address.match(COORD_RE);
-    if (m) {
-      const lat = Number(m[1]);
-      const lng = Number(m[2]);
-      if (Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
-        return { lat, lng, label: `${lat.toFixed(5)}, ${lng.toFixed(5)}` };
-      }
-    }
+    const coords = parseCoords(address);
+    if (coords) return coords;
 
     const q = normalize(address);
     if (q.length < 2) return null;

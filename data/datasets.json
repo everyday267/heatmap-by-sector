@@ -1,0 +1,6 @@
+{
+  "default": "sample",
+  "datasets": [
+    { "id": "sample", "label": "샘플 · 서울 강남구 일대", "file": "data/sample.json" }
+  ]
+}
