@@ -1,5 +1,6 @@
-# 상가(상권)정보와 행정동별 주민등록 인구를 GitHub Actions에서 받아 data/에 커밋한다.
-# 인증키는 저장소 Settings › Secrets and variables › Actions의 DATA_GO_KR_SERVICE_KEY에서만 읽는다.
+# 상가(상권)정보, 행정동별 주민등록 인구, 서울 생활인구를 GitHub Actions에서 받아 data/에 커밋한다.
+# 인증키는 저장소 Settings › Secrets and variables › Actions에서만 읽는다:
+#   DATA_GO_KR_SERVICE_KEY (공공데이터포털: 상가·주민등록 인구), SEOUL_OPENAPI_KEY (서울 열린데이터광장: 생활인구, 선택)
 #
 # 실행 시점
 #   - 수동: Actions 탭 › "Fetch sangga data" › Run workflow
@@ -17,6 +18,8 @@ on:
       - "scripts/lib/sangga.mjs"
       - "scripts/fetch-population.mjs"
       - "scripts/lib/population.mjs"
+      - "scripts/fetch-livepop.mjs"
+      - "scripts/lib/livepop.mjs"
   schedule:
     - cron: "0 21 5 1,4,7,10 *" # 1·4·7·10월 6일 06:00 KST
 
@@ -84,17 +87,40 @@ jobs:
           echo "::warning::인구 수집에 실패했습니다(상가 데이터는 정상 커밋). 로그의 '인구 수집 결과'를 확인하세요."
           { echo '### ⚠️ 인구 수집 실패'; echo '```'; tail -n 20 population.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
+      # 생활인구는 서울 열린데이터광장 키가 따로 필요하다. 키가 없거나 실패해도 나머지는 커밋한다.
+      - name: 길음2동 생활인구 수집
+        id: livepop
+        if: steps.key.outputs.present == 'true'
+        continue-on-error: true
+        env:
+          SEOUL_OPENAPI_KEY: ${{ secrets.SEOUL_OPENAPI_KEY }}
+        run: |
+          if [ -z "$SEOUL_OPENAPI_KEY" ]; then
+            echo "::warning::SEOUL_OPENAPI_KEY 시크릿이 없어 생활인구 수집을 건너뜁니다."
+            exit 0
+          fi
+          npm run --silent fetch:gileum2:livepop 2>&1 | tee livepop.log
+          { echo '### 생활인구 수집 결과'; echo '```'; tail -n 8 livepop.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 생활인구 수집 실패 알림
+        if: steps.key.outputs.present == 'true' && steps.livepop.outcome == 'failure'
+        run: |
+          echo "::warning::생활인구 수집에 실패했습니다(다른 데이터는 정상 커밋). 로그의 '생활인구 수집 결과'를 확인하세요."
+          { echo '### ⚠️ 생활인구 수집 실패'; echo '```'; tail -n 20 livepop.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
       - name: 바뀐 데이터 커밋
         if: steps.key.outputs.present == 'true'
         run: |
           git add data/gileum2.json data/datasets.json
-          if [ -f data/gileum2-population.json ]; then git add data/gileum2-population.json; fi
+          for f in data/gileum2-population.json data/gileum2-livepop.json; do
+            if [ -f "$f" ]; then git add "$f"; fi
+          done
           if git diff --cached --quiet; then
             echo "데이터 변화 없음"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Update Gileum 2-dong sangga and population snapshot"
+          git commit -m "Update Gileum 2-dong store and population snapshots"
           git pull --rebase origin "$GITHUB_REF_NAME"
           git push origin "HEAD:$GITHUB_REF_NAME"

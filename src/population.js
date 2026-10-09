@@ -29,6 +29,50 @@ export const AGE_GROUPS = [
  */
 export const normalizeDongName = (name) => String(name ?? "").trim().replace(/제(\d+)동$/, "$1동");
 
+// 인구 기준. 생활인구는 해당 시간대들의 "평균 체류 인원"(시간대를 더하지 않고 평균)이다.
+const range = (a, b) => Array.from({ length: b - a }, (_, i) => a + i);
+export const POP_BASES = [
+  { key: "resident", label: "거주 인구 (주민등록)", kind: "resident" },
+  { key: "live-wd", label: "생활인구 · 평일 하루 평균", kind: "live", days: ["weekday"], hours: range(0, 24) },
+  { key: "live-we", label: "생활인구 · 주말 하루 평균", kind: "live", days: ["weekend"], hours: range(0, 24) },
+  { key: "live-wd-lunch", label: "생활인구 · 평일 점심 (11~14시)", kind: "live", days: ["weekday"], hours: range(11, 14) },
+  { key: "live-wd-evening", label: "생활인구 · 평일 저녁 (18~22시)", kind: "live", days: ["weekday"], hours: range(18, 22) },
+  { key: "live-we-day", label: "생활인구 · 주말 낮 (12~18시)", kind: "live", days: ["weekend"], hours: range(12, 18) },
+  { key: "live-night", label: "생활인구 · 심야 (0~6시)", kind: "live", days: ["weekday", "weekend"], hours: range(0, 6) },
+];
+
+/**
+ * 생활인구 파일(data/<id>-livepop.json)을 선택한 기준의 시간대 평균으로 줄여
+ * 주민등록 인구 파일과 같은 형태({ meta, dongs: [{ name, total, ages }] })로 만든다.
+ * 평일·주말을 섞는 기준(심야)은 일주일 비율(5:2)로 가중한다.
+ */
+export function livePopulationView(livepop, basisKey) {
+  const basis = POP_BASES.find((b) => b.key === basisKey && b.kind === "live");
+  if (!basis) throw new Error(`생활인구 기준이 아닙니다: ${basisKey}`);
+  const dayWeight = { weekday: 5, weekend: 2 };
+  const dongs = [];
+  for (const d of livepop.dongs) {
+    const acc = new Array(AGE_BANDS_PLUS_TOTAL).fill(0);
+    let weight = 0;
+    for (const day of basis.days) {
+      const slots = d[day];
+      if (!slots) continue;
+      for (const h of basis.hours) {
+        const v = slots[h];
+        if (!v) continue;
+        const w = basis.days.length > 1 ? dayWeight[day] : 1;
+        v.forEach((x, i) => (acc[i] += x * w));
+        weight += w;
+      }
+    }
+    if (!weight) continue;
+    const mean = acc.map((x) => x / weight);
+    dongs.push({ name: d.name, total: mean[0], ages: mean.slice(1) });
+  }
+  return { meta: { ...livepop.meta, basis: basis.key, hasAges: livepop.meta?.hasAges !== false }, dongs };
+}
+const AGE_BANDS_PLUS_TOTAL = 12;
+
 const groupOf = (key) => AGE_GROUPS.find((g) => g.key === key) ?? AGE_GROUPS[0];
 
 export class PopulationGrid {

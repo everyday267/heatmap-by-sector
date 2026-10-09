@@ -9,7 +9,8 @@
     "test": "node --test \"test/*.test.mjs\"",
     "generate:sample": "node scripts/generate-sample.mjs",
     "fetch:gileum2": "node scripts/fetch-sangga.mjs --id gileum2 --label \"서울 성북구 길음2동\" --sigungu 11290:성북구,11305:강북구 --focus 길음2동 --box-km 3",
-    "fetch:gileum2:population": "node scripts/fetch-population.mjs --id gileum2 --sigungu 11290:성북구,11305:강북구"
+    "fetch:gileum2:population": "node scripts/fetch-population.mjs --id gileum2 --sigungu 11290:성북구,11305:강북구",
+    "fetch:gileum2:livepop": "node scripts/fetch-livepop.mjs --id gileum2 --days 14"
   },
   "engines": {
     "node": ">=22"
