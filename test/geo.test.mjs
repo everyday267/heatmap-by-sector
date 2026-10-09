@@ -108,6 +108,19 @@ test("interpret: 문구에 개수·배수·조언 포함", () => {
   assert.doesNotMatch(interpret({ count: 0, level: "낮음", relative: null }, "약국", 300).headline, /평균/);
 });
 
+test("interpret: 업종별 순위가 있으면 문구 앞쪽에", () => {
+  const r = { count: 45, level: "높음", relative: 1.5, rank: { label: "상위 25%" } };
+  assert.equal(
+    interpret(r, "카페", 500).headline,
+    "반경 500m 안에 카페 45곳 — 이 지역 상가 위치 중 상위 25%, 주변 평균보다 1.5배 밀집.",
+  );
+});
+
+test("interpret: 0곳이면 순위 문구는 생략", () => {
+  const r = { count: 0, level: "낮음", relative: null, rank: { label: "반경 안에 없음" } };
+  assert.equal(interpret(r, "약국", 300).headline, "반경 300m 안에 약국 0곳.");
+});
+
 test("formatDistance", () => {
   assert.equal(formatDistance(500), "500m");
   assert.equal(formatDistance(1000), "1km");

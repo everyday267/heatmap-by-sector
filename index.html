@@ -59,13 +59,14 @@
           <div class="stat">
             <span class="stat-label">경쟁 강도</span>
             <span id="stat-level" class="level">–</span>
+            <span id="stat-rank" class="stat-sub"></span>
           </div>
         </div>
 
         <p id="headline" class="headline"></p>
         <p id="advice" class="advice"></p>
 
-        <h2><span id="compare-title">이 위치의 업종별 비교</span> <small>개수 · 주변 대비</small></h2>
+        <h2><span id="compare-title">이 위치의 업종별 비교</span> <small>막대 색 = 경쟁 강도</small></h2>
         <ol id="compare" class="compare"></ol>
 
         <h2>가까운 업소 <small id="nearest-count"></small></h2>
@@ -78,7 +79,7 @@
           <span class="legend-bar" aria-hidden="true"></span>
           <span class="legend-ends"><span>드묾</span><span>밀집</span></span>
         </div>
-        <p>등급 기준(개/㎢): 낮음 &lt;5 · 보통 5–15 · 높음 15–40 · 매우높음 40+</p>
+        <p>경쟁 강도: 이 데이터 범위에서 상가가 있는 100m 칸들과 같은 반경·같은 업종 개수를 비교한 순위. 상위 10% 매우높음 · 10–30% 높음 · 30–70% 보통 · 하위 30% 낮음</p>
         <p id="data-source"></p>
       </footer>
     </aside>

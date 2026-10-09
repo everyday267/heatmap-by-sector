@@ -172,6 +172,8 @@ body { display: flex; flex-direction: column; }
 .level-high { background: var(--lv-high); }
 .level-very-high { background: var(--lv-very-high); }
 
+.stat-sub { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
 .headline { margin: 14px 0 4px; font-size: 15px; font-weight: 600; line-height: 1.45; }
 .advice { margin: 0; font-size: 13px; line-height: 1.55; color: var(--muted); }
 

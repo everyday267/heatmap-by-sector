@@ -3,6 +3,7 @@
 /* global L */
 
 import { computeDensity, interpret, formatDistance } from "./geo.js";
+import { DensityBenchmark } from "./benchmark.js";
 import { StaticPlaceSource } from "./sources/static.js";
 import { SampleGeocoder } from "./sources/sample.js";
 import { ApiGeocoder, ChainGeocoder, DatasetGeocoder } from "./sources/geocoders.js";
@@ -52,6 +53,12 @@ function makeGeocoder(meta) {
   };
 }
 
+/** 업종별 순위로 등급을 바꾼다. 기준점이 부족하면 고정 기준(개/㎢) 등급을 그대로 둔다. */
+function withRank(result, benchmark, code, radiusM) {
+  const rank = benchmark.rank(code, radiusM, result.count);
+  return rank ? { ...result, rank, level: rank.level } : result;
+}
+
 function groupByCategory(places) {
   const m = new Map();
   for (const p of places) {
@@ -68,6 +75,7 @@ async function main() {
   const { manifest, entry, data } = await loadDataset(params);
   const { meta } = data;
   const source = new StaticPlaceSource(data);
+  const benchmark = new DensityBenchmark(data.places, meta.bounds);
   const { geocoder, suggestions, api, hint } = makeGeocoder(meta);
   const categories = await source.categories();
   const categoryByCode = new Map(categories.map((c) => [c.code, c]));
@@ -192,7 +200,7 @@ async function main() {
     const nearby = await source.query(center, contextM);
     if (seq !== state.seq) return;
     const byCode = groupByCategory(nearby);
-    const result = computeDensity(byCode.get(code) ?? [], center, radiusM, contextM);
+    const result = withRank(computeDensity(byCode.get(code) ?? [], center, radiusM, contextM), benchmark, code, radiusM);
 
     // 지도
     heat.setLatLngs(result.heatPoints);
@@ -228,6 +236,7 @@ async function main() {
     const levelEl = $("stat-level");
     levelEl.textContent = result.level;
     levelEl.className = `level level-${LEVEL_CLASS[result.level]}`;
+    $("stat-rank").textContent = result.rank ? `이 지역 ${result.rank.label}` : "고정 기준(개/㎢)";
     const text = interpret(result, category.name, radiusM);
     $("headline").textContent = text.headline;
     $("advice").textContent = text.advice;
@@ -256,8 +265,8 @@ async function main() {
   // 반경 안에 많은 업종 상위 N개 (+ 선택 업종이 빠졌으면 맨 아래에 추가).
   function renderComparison(byCode, center, radiusM, contextM, selectedCode) {
     const rows = [...byCode.entries()].map(([code, places]) => {
-      const r = computeDensity(places, center, radiusM, contextM);
-      return { c: categoryByCode.get(code), count: r.count, relative: r.relative, level: r.level };
+      const r = withRank(computeDensity(places, center, radiusM, contextM), benchmark, code, radiusM);
+      return { c: categoryByCode.get(code), count: r.count, relative: r.relative, level: r.level, rank: r.rank };
     });
     rows.sort((a, b) => b.count - a.count || (b.relative ?? 0) - (a.relative ?? 0));
     const shown = rows.filter((r) => r.count > 0).slice(0, COMPARE_LIMIT);
@@ -271,13 +280,13 @@ async function main() {
       categories.length > COMPARE_LIMIT ? `반경 안에 많은 업종 상위 ${COMPARE_LIMIT}` : "이 위치의 업종별 비교";
 
     $("compare").replaceChildren(
-      ...shown.map(({ c, count, relative, level }) => {
+      ...shown.map(({ c, count, relative, level, rank }) => {
         const btn = el(
           "button",
           {
             type: "button",
             className: `compare-row${c.code === selectedCode ? " is-selected" : ""}`,
-            title: `${c.name}로 분석`,
+            title: `${c.name}로 분석 · 경쟁 강도 ${level}${rank ? ` (이 지역 ${rank.label})` : ""}`,
           },
           el("span", { className: "compare-name", textContent: c.name }),
           el(

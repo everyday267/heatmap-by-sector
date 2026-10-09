@@ -31,7 +31,7 @@ export function withinRadius(places, center, radiusM) {
   return out.sort((x, y) => x.distanceM - y.distanceM);
 }
 
-// perKm2 기준 등급 경계 (DESIGN.md §5.3, 초기값 · 튜닝 대상).
+// perKm2 기준 등급 경계 (DESIGN.md §5.3). 업종별 순위(src/benchmark.js)를 낼 수 없을 때만 쓰는 대체 기준.
 export const DENSITY_LEVELS = [
   { min: 40, level: "매우높음" },
   { min: 15, level: "높음" },
@@ -80,17 +80,20 @@ export function toHeatPoints(places, weight = 1) {
   return places.map((p) => [p.lat, p.lng, weight]);
 }
 
-/** 결과를 한 줄 해석 문구로. */
+/** 결과를 한 줄 해석 문구로. result.rank가 있으면(업종별 순위) 함께 적는다. */
 export function interpret(result, categoryName, radiusM) {
   const where = `반경 ${formatDistance(radiusM)} 안에 ${categoryName} ${result.count}곳`;
-  const rel =
-    result.relative == null
-      ? ""
-      : result.relative >= 1.15
-        ? ` — 주변 평균보다 ${result.relative.toFixed(1)}배 밀집`
+  const parts = [];
+  if (result.rank && result.count > 0) parts.push(`이 지역 상가 위치 중 ${result.rank.label}`);
+  if (result.relative != null) {
+    parts.push(
+      result.relative >= 1.15
+        ? `주변 평균보다 ${result.relative.toFixed(1)}배 밀집`
         : result.relative <= 0.85
-          ? ` — 주변 평균의 ${Math.round(result.relative * 100)}% 수준`
-          : " — 주변 평균과 비슷";
+          ? `주변 평균의 ${Math.round(result.relative * 100)}% 수준`
+          : "주변 평균과 비슷",
+    );
+  }
 
   const advice = {
     매우높음: "경쟁이 매우 치열합니다. 광고 반경에서 제외하거나 뚜렷한 차별화가 필요합니다.",
@@ -99,7 +102,7 @@ export function interpret(result, categoryName, radiusM) {
     낮음: "경쟁이 적습니다. 수요가 확인되면 진입·광고 집중 후보 지역입니다.",
   }[result.level];
 
-  return { headline: where + rel + ".", advice };
+  return { headline: `${where}${parts.length ? ` — ${parts.join(", ")}` : ""}.`, advice };
 }
 
 export function formatDistance(m) {
