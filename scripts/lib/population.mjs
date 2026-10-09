@@ -40,10 +40,14 @@ export function parsePopulationResponse(text) {
   return { items, totalCount: Number(body.totalCount ?? header.totalCount ?? items.length) };
 }
 
-/** 응답 한 행 → { dong, total, ages[11] }. 동 이름이 없는 행(구 합계 등)은 null. */
-export function mapPopulationRow(row) {
+/**
+ * 응답 한 행 → { dong, total, ages[11] }.
+ * 동 이름 항목이 없으면 fallbackDong(동 코드로 직접 조회한 경우)을 쓰고, 그것도 없으면 null(구 합계 등).
+ */
+export function mapPopulationRow(row, fallbackDong) {
   const dongKey = DONG_FIELDS.find((k) => typeof row[k] === "string" && row[k].trim());
-  if (!dongKey) return null;
+  const dong = dongKey ? row[dongKey].trim() : fallbackDong;
+  if (!dong) return null;
   const ages = new Array(AGE_BANDS).fill(0);
   let ageFields = 0;
   for (const [k, v] of Object.entries(row)) {
@@ -56,7 +60,7 @@ export function mapPopulationRow(row) {
   const totalKey = TOTAL_FIELDS.find((k) => k in row);
   const total = totalKey ? Number(row[totalKey]) || 0 : ages.reduce((a, b) => a + b, 0);
   if (!ageFields && !totalKey) return null;
-  return { dong: row[dongKey].trim(), total, ages, hasAges: ageFields > 0 };
+  return { dong, total, ages, hasAges: ageFields > 0, named: Boolean(dongKey) };
 }
 
 /** 통·반 단위 행이 와도 동 이름으로 합친다. */
@@ -71,15 +75,50 @@ export function aggregateByDong(rows) {
   return [...byDong.values()].sort((a, b) => a.name.localeCompare(b.name, "ko"));
 }
 
-function assertShape(items) {
+function assertShape(items, fallbackDong) {
   if (!items.length) return;
-  if (!items.some((row) => mapPopulationRow(row))) {
+  if (!items.some((row) => mapPopulationRow(row, fallbackDong))) {
     throw new Error(
       `인구 응답에서 행정동 이름이나 인구 항목을 찾지 못했습니다.\n` +
         `실제 항목: ${Object.keys(items[0]).join(", ")}\n` +
         `scripts/lib/population.mjs의 DONG_FIELDS/TOTAL_FIELDS/AGE_FIELD를 맞춰야 합니다.`,
     );
   }
+}
+
+/** 로그용 응답 앞부분. 인증키가 섞여 있으면 가린다. */
+function snippetOf(text, serviceKey) {
+  let t = String(text).replace(/\s+/g, " ").slice(0, 400);
+  const k = normalizeServiceKey(serviceKey);
+  for (const v of [k, encodeURIComponent(k)]) if (v) t = t.split(v).join("***");
+  return t;
+}
+
+/** 한 번의 조회(페이지 넘김 포함) → { rows, snippet }. 0행일 때 원인을 볼 수 있게 첫 응답 앞부분을 남긴다. */
+export async function requestRows({ admmCd, ym, lv, serviceKey, fetchImpl = fetch, fallbackDong }) {
+  const rows = [];
+  let snippet = "";
+  for (let pageNo = 1; ; pageNo++) {
+    const url = new URL(POP_API);
+    url.search = new URLSearchParams({
+      serviceKey: normalizeServiceKey(serviceKey),
+      admmCd,
+      srchFrYm: ym,
+      srchToYm: ym,
+      lv,
+      regSeCd: "1",
+      type: "JSON",
+      numOfRows: String(PAGE_SIZE),
+      pageNo: String(pageNo),
+    });
+    const text = await (await fetchImpl(url)).text();
+    if (pageNo === 1) snippet = snippetOf(text, serviceKey);
+    const page = parsePopulationResponse(text);
+    if (pageNo === 1) assertShape(page.items, fallbackDong);
+    rows.push(...page.items);
+    if (page.items.length < PAGE_SIZE || rows.length >= page.totalCount) break;
+  }
+  return { rows, snippet };
 }
 
 /** 기준월 후보: 매월 2일 이후 전월분이 공표되므로 전월부터 거슬러 올라간다. */
@@ -93,7 +132,7 @@ export function recentMonths(now = new Date(), count = 3) {
 }
 
 /**
- * 시군구 하나의 행정동별 인구.
+ * 방법 1: 시군구 코드로 한 번에 행정동별 인구.
  * @param {string} sigunguCd 시군구 코드 5자리 → 행정기관코드 10자리(뒤 00000)로 조회
  */
 export async function fetchDongPopulation(sigunguCd, { serviceKey, ym, fetchImpl = fetch, log = () => {} } = {}) {
@@ -101,36 +140,69 @@ export async function fetchDongPopulation(sigunguCd, { serviceKey, ym, fetchImpl
   // lv(조회 단위)는 명세를 확인하지 못해, 동 단위 행이 나오는 값을 차례로 시도한다.
   const errors = [];
   for (const lv of ["3", "4"]) {
-    const rows = [];
+    let res;
     try {
-      for (let pageNo = 1; ; pageNo++) {
-        const url = new URL(POP_API);
-        url.search = new URLSearchParams({
-          serviceKey: normalizeServiceKey(serviceKey),
-          admmCd,
-          srchFrYm: ym,
-          srchToYm: ym,
-          lv,
-          regSeCd: "1",
-          type: "JSON",
-          numOfRows: String(PAGE_SIZE),
-          pageNo: String(pageNo),
-        });
-        const res = await fetchImpl(url);
-        const page = parsePopulationResponse(await res.text());
-        if (pageNo === 1) assertShape(page.items);
-        rows.push(...page.items);
-        if (page.items.length < PAGE_SIZE || rows.length >= page.totalCount) break;
-      }
+      res = await requestRows({ admmCd, ym, lv, serviceKey, fetchImpl });
     } catch (err) {
       errors.push(`lv=${lv}: ${err.message}`);
       continue;
     }
-    const mapped = rows.map(mapPopulationRow).filter(Boolean);
+    const mapped = res.rows.map((r) => mapPopulationRow(r)).filter(Boolean);
     const dongs = aggregateByDong(mapped);
-    log(`  ${sigunguCd} ${ym} lv=${lv}: ${rows.length}행 → 행정동 ${dongs.length}개`);
+    log(`  [구 코드] ${admmCd} ${ym} lv=${lv}: ${res.rows.length}행 → 행정동 ${dongs.length}개`);
     if (dongs.length >= 2) return { ym, dongs, hasAges: mapped.some((r) => r.hasAges) };
-    errors.push(`lv=${lv}: 행정동 단위 행이 없음 (${rows.length}행)`);
+    errors.push(`lv=${lv}: 행정동 단위 행이 없음 (${res.rows.length}행) 응답: ${res.snippet}`);
   }
-  throw new Error(`${sigunguCd} ${ym} 인구 조회 실패\n  ${errors.join("\n  ")}`);
+  throw new Error(`[구 코드] ${sigunguCd} ${ym} 실패\n  ${errors.join("\n  ")}`);
+}
+
+/** 상가정보의 행정동 코드(8자리면 뒤에 00) → 10자리. */
+export const toAdmmCd = (code) => String(code ?? "").padEnd(10, "0").slice(0, 10);
+
+/**
+ * 방법 2: 행정동 코드로 동마다 조회. 먼저 첫 동으로 통하는 lv를 찾고, 안 되면 바로 멈춘다(호출 낭비 방지).
+ * @param {{ name, code }[]} dongs  데이터셋 meta.dongs
+ */
+export async function fetchPopulationByDongCodes(dongs, { serviceKey, ym, fetchImpl = fetch, log = () => {} } = {}) {
+  const targets = dongs.filter((d) => d.code);
+  if (!targets.length) throw new Error("[동 코드] 데이터셋에 행정동 코드가 없습니다 (상가 데이터를 다시 수집하세요)");
+
+  const one = async (d, lv) => {
+    const res = await requestRows({ admmCd: toAdmmCd(d.code), ym, lv, serviceKey, fetchImpl, fallbackDong: d.name });
+    const mapped = res.rows.map((r) => mapPopulationRow(r, d.name)).filter(Boolean);
+    // 동 이름이 붙은 행이 오면 그 동 것만, 이름 없는 행(통·반)만 오면 전부 이 동으로 합친다.
+    const mine = mapped.some((r) => r.named) ? mapped.filter((r) => r.dong === d.name) : mapped;
+    const [agg] = aggregateByDong(mine.map((r) => ({ ...r, dong: d.name })));
+    return { agg, rows: res.rows.length, snippet: res.snippet, hasAges: mine.some((r) => r.hasAges) };
+  };
+
+  const errors = [];
+  let lvOk = null;
+  for (const lv of ["3", "4", "2"]) {
+    try {
+      const r = await one(targets[0], lv);
+      log(`  [동 코드] ${targets[0].name}(${toAdmmCd(targets[0].code)}) ${ym} lv=${lv}: ${r.rows}행 → 인구 ${r.agg?.total ?? 0}`);
+      if (r.agg?.total > 0) {
+        lvOk = lv;
+        break;
+      }
+      errors.push(`lv=${lv}: 0행 응답: ${r.snippet}`);
+    } catch (err) {
+      errors.push(`lv=${lv}: ${err.message}`);
+    }
+  }
+  if (!lvOk) throw new Error(`[동 코드] ${targets[0].name} ${ym} 실패\n  ${errors.join("\n  ")}`);
+
+  const out = [];
+  let hasAges = true;
+  const missing = [];
+  for (const d of targets) {
+    const r = await one(d, lvOk);
+    if (r.agg?.total > 0) {
+      out.push(r.agg);
+      hasAges &&= r.hasAges;
+    } else missing.push(d.name);
+  }
+  log(`  [동 코드] lv=${lvOk}: ${out.length}/${targets.length}개 동 성공${missing.length ? ` · 실패: ${missing.join(", ")}` : ""}`);
+  return { ym, dongs: out.sort((a, b) => a.name.localeCompare(b.name, "ko")), hasAges };
 }

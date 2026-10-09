@@ -29,6 +29,7 @@ const item = (o = {}) => ({
   lat: 37.605,
   ...o,
 });
+// adongCd를 넣은 행은 meta.dongs[].code로 남는다 (아래 테스트)
 const page = (items, totalCount = items.length, resultCode = "00") =>
   JSON.stringify({
     header: { resultCode, resultMsg: "NORMAL SERVICE", stdrYm: "202506" },
@@ -100,6 +101,7 @@ test("mapStoreItem: 이름+지점명, 도로명 우선, 좌표 없으면 null", 
     lng: 127.025123,
     address: "서울특별시 성북구 동소문로 1",
     dong: "길음2동",
+    dongCode: "",
   });
   assert.equal(mapStoreItem(item({ rdnmAdr: "" })).address, "서울특별시 성북구 길음동 1");
   assert.equal(mapStoreItem(item({ lon: "", lat: "" })), null);
@@ -127,6 +129,7 @@ test("buildDataset: 관심 동 중심 ±boxKm만, 업종·동 집계, 기본값"
   assert.deepEqual(ds.meta.dongs.map((d) => d.name), ["길음1동", "길음2동"]);
   // 길음2동 업소 a·b는 약 1.1km 떨어져 서로 다른 100m 칸
   assert.deepEqual(ds.meta.dongs.map((d) => d.cells), [1, 2]);
+  assert.equal(ds.places[0].dongCode, undefined); // 동 코드는 meta.dongs에만
   assert.equal(ds.places[0].categoryName, undefined); // 업종명은 categories에서
   assert.ok(ds.meta.bounds.south < 37.605 && ds.meta.bounds.north > 37.605);
 });
@@ -163,4 +166,9 @@ test("buildDataset: 범위에 걸친 동은 범위 밖 칸까지 세고, 범위 
     ds.meta.dongs.map((d) => [d.name, d.cells]),
     [["길음2동", 1], ["미아동", 2]],
   );
+});
+
+test("buildDataset: 행정동 코드를 meta.dongs에 남긴다", () => {
+  const ds = buildDataset({ items: [item({ adongCd: "1129068500" })], focusDong: "길음2동" });
+  assert.equal(ds.meta.dongs[0].code, "1129068500");
 });

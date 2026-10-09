@@ -110,6 +110,7 @@ export function mapStoreItem(item) {
     lng: round6(lng),
     address: item.rdnmAdr || item.lnoAdr || "",
     dong: item.adongNm || item.ldongNm || "",
+    dongCode: item.adongCd ? String(item.adongCd) : "",
   };
 }
 
@@ -142,7 +143,7 @@ export function buildDataset({ items, id, label, focusDong, boxKm = 3, coverage 
   const dongAgg = new Map();
   for (const p of all) {
     if (!p.dong) continue;
-    const d = dongAgg.get(p.dong) ?? { name: p.dong, lat: 0, lng: 0, count: 0 };
+    const d = dongAgg.get(p.dong) ?? { name: p.dong, code: p.dongCode, lat: 0, lng: 0, count: 0 };
     d.lat += p.lat;
     d.lng += p.lng;
     d.count++;
@@ -150,6 +151,7 @@ export function buildDataset({ items, id, label, focusDong, boxKm = 3, coverage 
   }
   const dongs = [...dongAgg.values()].map((d) => ({
     name: d.name,
+    code: d.code, // 행정동 코드 (인구 API를 동 단위로 부를 때)
     lat: round6(d.lat / d.count),
     lng: round6(d.lng / d.count),
     count: d.count,
@@ -219,6 +221,6 @@ export function buildDataset({ items, id, label, focusDong, boxKm = 3, coverage 
     },
     categories,
     // 업종명·대분류는 categories에서 채우므로 업소에는 코드만 남긴다.
-    places: places.map(({ categoryName, categoryMajor, ...rest }) => rest),
+    places: places.map(({ categoryName, categoryMajor, dongCode, ...rest }) => rest),
   };
 }

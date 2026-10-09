@@ -6,6 +6,8 @@ import {
   aggregateByDong,
   recentMonths,
   fetchDongPopulation,
+  fetchPopulationByDongCodes,
+  toAdmmCd,
 } from "../scripts/lib/population.mjs";
 import { PopulationGrid, combinedAdvice, MIN_POP } from "../src/population.js";
 import { DensityBenchmark } from "../src/benchmark.js";
@@ -84,6 +86,48 @@ test("fetchDongPopulation: 항목 이름이 예상과 다르면 실제 항목을
     fetchDongPopulation("11290", { serviceKey: "k", ym: "202609", fetchImpl }),
     (err) => /실제 항목: foo, bar/.test(err.message),
   );
+});
+
+test("fetchDongPopulation: 0행이면 응답 앞부분을 오류에 담고, 인증키는 가린다", async () => {
+  const fetchImpl = async () => ({
+    text: async () => JSON.stringify({ Response: { head: { resultCode: "0", resultMsg: "NODATA key=SECRET+KEY" }, items: { item: [] } } }),
+  });
+  await assert.rejects(fetchDongPopulation("11290", { serviceKey: "SECRET+KEY", ym: "202609", fetchImpl }), (err) => {
+    assert.match(err.message, /NODATA key=\*\*\*/);
+    assert.doesNotMatch(err.message, /SECRET/);
+    return true;
+  });
+});
+
+test("toAdmmCd: 8자리 행정동 코드는 10자리로", () => {
+  assert.equal(toAdmmCd("11290685"), "1129068500");
+  assert.equal(toAdmmCd("1129068500"), "1129068500");
+});
+
+test("fetchPopulationByDongCodes: 첫 동으로 통하는 lv를 찾은 뒤 동마다 조회", async () => {
+  const calls = [];
+  const fetchImpl = async (url) => {
+    const u = new URL(url).searchParams;
+    calls.push(`${u.get("admmCd")}/${u.get("lv")}`);
+    // lv=3은 빈 응답, lv=4는 동 이름 없는 통 단위 행 2개
+    const items = u.get("lv") === "4" ? [{ tong: "1", ...row(undefined, 1) }, { tong: "2", ...row(undefined, 2) }] : [];
+    for (const it of items) delete it.dongNm;
+    return { text: async () => body(items) };
+  };
+  const dongs = [{ name: "길음2동", code: "11290685" }, { name: "길음1동", code: "1129066000" }, { name: "코드없음" }];
+  const r = await fetchPopulationByDongCodes(dongs, { serviceKey: "k", ym: "202609", fetchImpl });
+  assert.deepEqual(r.dongs.map((d) => [d.name, d.total]), [["길음1동", 66], ["길음2동", 66]]);
+  assert.deepEqual(calls, ["1129068500/3", "1129068500/4", "1129068500/4", "1129066000/4"]);
+});
+
+test("fetchPopulationByDongCodes: 동 이름이 붙은 행이 오면 그 동 것만", async () => {
+  const fetchImpl = async () => ({ text: async () => body([row("길음2동", 1), row("미아동", 5)]) });
+  const r = await fetchPopulationByDongCodes([{ name: "길음2동", code: "1129068500" }], { serviceKey: "k", ym: "202609", fetchImpl });
+  assert.deepEqual(r.dongs.map((d) => [d.name, d.total]), [["길음2동", 22]]);
+});
+
+test("fetchPopulationByDongCodes: 동 코드가 없으면 다시 수집하라고 안내", async () => {
+  await assert.rejects(fetchPopulationByDongCodes([{ name: "길음2동" }], { serviceKey: "k", ym: "202609" }), /다시 수집/);
 });
 
 // --- PopulationGrid ---

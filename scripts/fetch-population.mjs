@@ -11,7 +11,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { loadEnv } from "./lib/env.mjs";
-import { fetchDongPopulation, recentMonths } from "./lib/population.mjs";
+import { fetchDongPopulation, fetchPopulationByDongCodes, recentMonths } from "./lib/population.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const DATA = join(ROOT, "data");
@@ -29,10 +29,13 @@ const sigungus = args.sigungu.split(",").map((s) => {
 
 loadEnv();
 const serviceKey = process.env.DATA_GO_KR_SERVICE_KEY;
+const datasetFile = join(DATA, `${args.id}.json`);
+const dataset = JSON.parse(readFileSync(datasetFile, "utf8"));
 
 let result = null;
 const failures = [];
 for (const ym of recentMonths()) {
+  // 방법 1: 구 코드로 한 번에
   try {
     const dongs = [];
     let hasAges = true;
@@ -41,12 +44,20 @@ for (const ym of recentMonths()) {
       dongs.push(...r.dongs);
       hasAges &&= r.hasAges;
     }
-    result = { ym, dongs, hasAges };
+    result = { ym, dongs, hasAges, method: "시군구 코드" };
     break;
   } catch (err) {
     failures.push(err.message);
-    console.log(`${ym}: 실패, 이전 달로 다시 시도`);
   }
+  // 방법 2: 상가 데이터의 행정동 코드로 동마다
+  try {
+    const r = await fetchPopulationByDongCodes(dataset.meta.dongs, { serviceKey, ym, log: console.log });
+    result = { ...r, method: "행정동 코드" };
+    break;
+  } catch (err) {
+    failures.push(err.message);
+  }
+  console.log(`${ym}: 실패, 이전 달로 다시 시도`);
 }
 if (!result) {
   console.error(failures.join("\n"));
@@ -55,8 +66,6 @@ if (!result) {
 }
 
 // 상가 데이터의 행정동 이름과 맞춰 본다.
-const datasetFile = join(DATA, `${args.id}.json`);
-const dataset = JSON.parse(readFileSync(datasetFile, "utf8"));
 const storeDongs = new Set(dataset.meta.dongs.map((d) => d.name));
 const popDongs = new Set(result.dongs.map((d) => d.name));
 const missingPop = [...storeDongs].filter((n) => !popDongs.has(n));
@@ -72,6 +81,7 @@ const out = {
     fetchedAt: new Date().toISOString(),
     coverage: sigungus.map((s) => s.name),
     hasAges: result.hasAges,
+    method: result.method,
     ageBands: "ages[i] = 만 (10*i)~(10*i+9)세, 마지막은 100세 이상",
   },
   dongs: result.dongs,
@@ -90,7 +100,7 @@ const total = result.dongs.reduce((s, d) => s + d.total, 0);
 console.log(
   [
     `✔ ${file}`,
-    `  기준월 ${result.ym} · 행정동 ${result.dongs.length}개 · 인구 ${total.toLocaleString()}명 · 연령별 ${result.hasAges ? "있음" : "없음"}`,
+    `  기준월 ${result.ym} (${result.method}로 조회) · 행정동 ${result.dongs.length}개 · 인구 ${total.toLocaleString()}명 · 연령별 ${result.hasAges ? "있음" : "없음"}`,
     `  상가 데이터 행정동 ${storeDongs.size}개 중 인구 없음: ${missingPop.length ? missingPop.join(", ") : "없음"}`,
   ].join("\n"),
 );
