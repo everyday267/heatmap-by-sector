@@ -62,13 +62,23 @@ jobs:
         if: steps.key.outputs.present == 'true'
         run: npm test
 
+      # 공공데이터포털 접속이 일시적으로 안 될 수 있다. 실패해도 이전에 커밋된 상가 데이터로 다음 단계를 진행한다.
       - name: 길음2동 수집
+        id: sangga
         if: steps.key.outputs.present == 'true'
+        continue-on-error: true
         env:
           DATA_GO_KR_SERVICE_KEY: ${{ secrets.DATA_GO_KR_SERVICE_KEY }}
         run: |
-          npm run --silent fetch:gileum2 | tee fetch.log
+          npm run --silent fetch:gileum2 2>&1 | tee fetch.log
           { echo '### 상가정보 수집 결과'; echo '```'; tail -n 5 fetch.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 상가 수집 실패 알림
+        if: steps.key.outputs.present == 'true' && steps.sangga.outcome == 'failure'
+        run: |
+          git checkout -- data/ # 반쯤 쓴 파일이 있으면 이전 커밋 상태로
+          echo "::warning::상가정보 수집에 실패해 이전에 커밋된 상가 데이터로 진행합니다. 로그의 '상가정보 수집 결과'를 확인하세요."
+          { echo '### ⚠️ 상가정보 수집 실패'; echo '```'; tail -n 15 fetch.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       # 인구는 별도 활용신청(15108072)이 필요하다. 실패해도 상가 데이터는 커밋한다.
       - name: 길음2동 인구 수집
