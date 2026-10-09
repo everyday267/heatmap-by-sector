@@ -16,19 +16,43 @@ export function normalizeServiceKey(key) {
   return /%[0-9A-Fa-f]{2}/.test(k) ? decodeURIComponent(k) : k;
 }
 
+/**
+ * 공공데이터포털 게이트웨이 오류(인증키 미등록, 트래픽 초과 등). XML로도, JSON으로도 온다:
+ *   <OpenAPI_ServiceResponse><cmmMsgHeader><returnAuthMsg>…
+ *   {"OpenAPI_ServiceResponse":{"cmmMsgHeader":{"errMsg":"SERVICE_KEY_IS_NOT_REGISTERED_ERROR",…}}}
+ * 이런 응답이면 err.gateway = true인 오류를 던진다. 같은 키로 재시도해도 소용없다.
+ */
+export function throwIfGatewayError(text, json, apiName) {
+  const h = json?.OpenAPI_ServiceResponse?.cmmMsgHeader;
+  const xml = !json && /<OpenAPI_ServiceResponse|<cmmMsgHeader/.test(text);
+  if (!h && !xml) return;
+  const pick = (tag) => h?.[tag] ?? text.match(new RegExp(`<${tag}>([^<]+)<`))?.[1];
+  const code = pick("errMsg") ?? pick("returnAuthMsg") ?? "알 수 없음";
+  const reason = pick("returnAuthMsg");
+  const hint = /NOT_REGISTERED/.test(code)
+    ? " — 이 인증키로 해당 API 활용신청이 안 됐거나, 승인 후 반영 전입니다(반영까지 시간이 걸릴 수 있음)"
+    : /LIMITED_NUMBER/.test(code)
+      ? " — 오늘 호출 한도를 넘었습니다"
+      : "";
+  const err = new Error(`${apiName} 오류: ${code}${reason && reason !== code ? ` (${reason})` : ""}${hint}`);
+  err.gateway = true;
+  throw err;
+}
+
 /** API 응답 본문 → { items, totalCount, stdrYm }. 오류 응답(XML 포함)은 읽을 수 있는 메시지로 던진다. */
 export function parseResponse(text) {
   let json;
   try {
     json = JSON.parse(text);
   } catch {
-    // 인증 실패 등은 type=json이어도 XML로 온다.
+    throwIfGatewayError(text, null, "상가정보 API");
     const msg =
       text.match(/<returnAuthMsg>([^<]+)</)?.[1] ??
       text.match(/<resultMsg>([^<]+)</)?.[1] ??
       text.slice(0, 200);
     throw new Error(`상가정보 API 오류: ${msg.trim()}`);
   }
+  throwIfGatewayError(text, json, "상가정보 API");
   const header = json.header ?? json.response?.header ?? {};
   const body = json.body ?? json.response?.body ?? {};
   const code = String(header.resultCode ?? "00");

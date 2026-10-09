@@ -60,6 +60,11 @@ test("parseResponse: 정상 / 데이터 없음 / 오류 코드 / XML 인증 오�
   );
 });
 
+test("parseResponse: JSON 게이트웨이 오류를 0건 정상 응답으로 착각하지 않는다", () => {
+  const text = JSON.stringify({ OpenAPI_ServiceResponse: { cmmMsgHeader: { errMsg: "LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS_ERROR" } } });
+  assert.throws(() => parseResponse(text), (err) => err.gateway === true && /호출 한도/.test(err.message));
+});
+
 test("fetchStoresBySigungu: 페이지를 끝까지 넘기고 요청 파라미터가 맞다", async () => {
   const urls = [];
   const first = Array.from({ length: 1000 }, () => item());

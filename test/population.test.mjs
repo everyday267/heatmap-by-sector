@@ -38,6 +38,27 @@ test("parsePopulationResponse: 오류 코드·XML 인증 오류", () => {
   assert.throws(() => parsePopulationResponse("<OpenAPI_ServiceResponse><returnAuthMsg>SERVICE_ACCESS_DENIED_ERROR</returnAuthMsg></OpenAPI_ServiceResponse>"), /SERVICE_ACCESS_DENIED/);
 });
 
+test("parsePopulationResponse: JSON으로 온 게이트웨이 오류(키 미등록)도 오류로", () => {
+  const text = JSON.stringify({
+    OpenAPI_ServiceResponse: { cmmMsgHeader: { errMsg: "SERVICE_KEY_IS_NOT_REGISTERED_ERROR", returnAuthMsg: "등록되지 않은 서비스키", returnReasonCode: "30" } },
+  });
+  assert.throws(() => parsePopulationResponse(text), (err) => {
+    assert.equal(err.gateway, true);
+    assert.match(err.message, /SERVICE_KEY_IS_NOT_REGISTERED_ERROR \(등록되지 않은 서비스키\).*활용신청/);
+    return true;
+  });
+});
+
+test("fetchDongPopulation: 게이트웨이 오류면 다른 lv로 재시도하지 않고 바로", async () => {
+  let calls = 0;
+  const fetchImpl = async () => {
+    calls++;
+    return { text: async () => JSON.stringify({ OpenAPI_ServiceResponse: { cmmMsgHeader: { errMsg: "SERVICE_KEY_IS_NOT_REGISTERED_ERROR" } } }) };
+  };
+  await assert.rejects(fetchDongPopulation("11290", { serviceKey: "k", ym: "202609", fetchImpl }), (e) => e.gateway === true);
+  assert.equal(calls, 1);
+});
+
 test("mapPopulationRow: 남녀 합쳐 10세 구간, 총인구 항목이 있으면 그 값", () => {
   const r = mapPopulationRow(row("길음2동", 5));
   assert.equal(r.dong, "길음2동");

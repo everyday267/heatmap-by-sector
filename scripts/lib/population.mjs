@@ -4,7 +4,7 @@
 // 공식 명세를 이 저장소 작업 환경에서 직접 열어 보지 못해, 요청 변수는 공개된 사용 사례 기준이고
 // 응답은 항목 이름을 넓게 받아들이도록 썼다. 형식이 다르면 실제 항목 이름을 출력하고 멈춘다.
 
-import { normalizeServiceKey } from "./sangga.mjs";
+import { normalizeServiceKey, throwIfGatewayError } from "./sangga.mjs";
 
 export const POP_API = "https://apis.data.go.kr/1741000/admmSexdAgePpltn/selectAdmmSexdAgePpltn";
 const PAGE_SIZE = 100; // API 최대값
@@ -21,12 +21,14 @@ export function parsePopulationResponse(text) {
   try {
     json = JSON.parse(text);
   } catch {
+    throwIfGatewayError(text, null, "인구 API");
     const msg =
       text.match(/<returnAuthMsg>([^<]+)</)?.[1] ??
       text.match(/<resultMsg>([^<]+)</)?.[1] ??
       text.slice(0, 200);
     throw new Error(`인구 API 오류: ${msg.trim()}`);
   }
+  throwIfGatewayError(text, json, "인구 API");
   const root = json.Response ?? json.response ?? json;
   const header = root.head ?? root.header ?? {};
   const body = root.items ? root : (root.body ?? {});
@@ -144,6 +146,7 @@ export async function fetchDongPopulation(sigunguCd, { serviceKey, ym, fetchImpl
     try {
       res = await requestRows({ admmCd, ym, lv, serviceKey, fetchImpl });
     } catch (err) {
+      if (err.gateway) throw err;
       errors.push(`lv=${lv}: ${err.message}`);
       continue;
     }
@@ -188,6 +191,7 @@ export async function fetchPopulationByDongCodes(dongs, { serviceKey, ym, fetchI
       }
       errors.push(`lv=${lv}: 0행 응답: ${r.snippet}`);
     } catch (err) {
+      if (err.gateway) throw err;
       errors.push(`lv=${lv}: ${err.message}`);
     }
   }

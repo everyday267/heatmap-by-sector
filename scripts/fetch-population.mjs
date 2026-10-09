@@ -34,6 +34,12 @@ const dataset = JSON.parse(readFileSync(datasetFile, "utf8"));
 
 let result = null;
 const failures = [];
+// 인증키 미등록·호출 한도 같은 게이트웨이 오류는 다른 방법·다른 달로 바꿔도 같으므로 바로 멈춘다.
+const stopOnGateway = (err) => {
+  if (!err.gateway) return;
+  console.error(err.message);
+  process.exit(1);
+};
 for (const ym of recentMonths()) {
   // 방법 1: 구 코드로 한 번에
   try {
@@ -47,6 +53,7 @@ for (const ym of recentMonths()) {
     result = { ym, dongs, hasAges, method: "시군구 코드" };
     break;
   } catch (err) {
+    stopOnGateway(err);
     failures.push(err.message);
   }
   // 방법 2: 상가 데이터의 행정동 코드로 동마다
@@ -55,6 +62,7 @@ for (const ym of recentMonths()) {
     result = { ...r, method: "행정동 코드" };
     break;
   } catch (err) {
+    stopOnGateway(err);
     failures.push(err.message);
   }
   console.log(`${ym}: 실패, 이전 달로 다시 시도`);
