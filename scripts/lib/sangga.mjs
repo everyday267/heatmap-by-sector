@@ -114,6 +114,7 @@ export function mapStoreItem(item) {
 }
 
 const M_PER_DEG_LAT = 111_320;
+export const POP_CELL_M = 100; // src/population.js의 칸 크기와 같아야 한다
 
 /**
  * 원본 업소 목록 → 앱이 읽는 데이터셋 JSON (data/sample.json과 같은 형식).
@@ -173,6 +174,18 @@ export function buildDataset({ items, id, label, focusDong, boxKm = 3, coverage 
 
   const places = all.filter(inBounds);
 
+  // 행정동별로 업소가 있는 100m 칸 수(범위 밖 포함). 화면에서 동 인구를 이 칸들에 나눌 때
+  // 범위에 반쯤 걸친 동의 인구가 안쪽 칸에만 몰리지 않도록 분모로 쓴다.
+  const mLng = M_PER_DEG_LAT * Math.cos((focus.lat * Math.PI) / 180);
+  const dongCells = new Map();
+  for (const p of all) {
+    if (!p.dong) continue;
+    const key = `${Math.floor((p.lat * M_PER_DEG_LAT) / POP_CELL_M)}:${Math.floor((p.lng * mLng) / POP_CELL_M)}`;
+    if (!dongCells.has(p.dong)) dongCells.set(p.dong, new Set());
+    dongCells.get(p.dong).add(key);
+  }
+  const dongsInView = new Set(places.map((p) => p.dong));
+
   const catAgg = new Map();
   for (const p of places) {
     const c = catAgg.get(p.categoryCode) ?? { code: p.categoryCode, name: p.categoryName, major: p.categoryMajor, count: 0 };
@@ -194,7 +207,11 @@ export function buildDataset({ items, id, label, focusDong, boxKm = 3, coverage 
       coverage,
       bounds,
       focus: { name: focus.name, lat: focus.lat, lng: focus.lng },
-      dongs: dongs.filter(inBounds).sort((a, b) => a.name.localeCompare(b.name, "ko")),
+      // 범위 안에 업소가 하나라도 있는 동. cells = 그 동의 업소가 있는 100m 칸 수(범위 밖 포함)
+      dongs: dongs
+        .filter((d) => dongsInView.has(d.name))
+        .map((d) => ({ ...d, cells: dongCells.get(d.name)?.size ?? 0 }))
+        .sort((a, b) => a.name.localeCompare(b.name, "ko")),
       defaults: { q: focus.name, cat: (cafe ?? categories[0])?.code },
       count: places.length,
       skippedNoCoords: skipped,

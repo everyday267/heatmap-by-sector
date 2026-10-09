@@ -57,6 +57,16 @@ export function rankLabel(pct, count) {
     : `하위 ${Math.max(1, Math.round(pct * 100))}%`;
 }
 
+/** 데이터 범위 남서쪽 모서리를 원점으로 한 평면 좌표(m). 수 km 범위라 오차는 무시할 만하다. */
+export function planarProjection(bounds) {
+  const mLng = M_PER_DEG_LAT * Math.cos(((bounds.south + bounds.north) / 2) * (Math.PI / 180));
+  return {
+    width: (bounds.east - bounds.west) * mLng,
+    height: (bounds.north - bounds.south) * M_PER_DEG_LAT,
+    toXY: (p) => ({ x: (p.lng - bounds.west) * mLng, y: (p.lat - bounds.south) * M_PER_DEG_LAT }),
+  };
+}
+
 export class DensityBenchmark {
   /**
    * @param {Place[]} places  데이터셋 전체 업소
@@ -66,11 +76,11 @@ export class DensityBenchmark {
     this._cellM = cellM;
     this._cache = new Map(); // radiusM → { n, counts: Map<code, Int32Array(sorted)> }
 
-    // 수 km 범위라 평면 좌표(m)로 계산해도 오차가 무시할 만하다. 반경 질의를 빠르게 하려고 미리 바꿔 둔다.
-    const mLng = M_PER_DEG_LAT * Math.cos(((bounds.south + bounds.north) / 2) * (Math.PI / 180));
-    this._width = (bounds.east - bounds.west) * mLng;
-    this._height = (bounds.north - bounds.south) * M_PER_DEG_LAT;
-    this._toXY = (p) => ({ x: (p.lng - bounds.west) * mLng, y: (p.lat - bounds.south) * M_PER_DEG_LAT });
+    // 반경 질의를 빠르게 하려고 평면 좌표(m)로 미리 바꿔 둔다.
+    const proj = planarProjection(bounds);
+    this._width = proj.width;
+    this._height = proj.height;
+    this._toXY = proj.toXY;
 
     this._codes = [];
     const codeIndex = new Map();
@@ -125,9 +135,14 @@ export class DensityBenchmark {
       }
     });
 
+    // raw: 기준점 순서 그대로(인구 대비 계산용), counts: 정렬본(순위 계산용)
+    const raw = new Map();
     const counts = new Map();
-    perCode.forEach((arr, c) => counts.set(this._codes[c], arr.sort()));
-    const ref = { n: points.length, counts };
+    perCode.forEach((arr, c) => {
+      raw.set(this._codes[c], arr);
+      counts.set(this._codes[c], arr.slice().sort());
+    });
+    const ref = { n: points.length, points: points.map(({ x, y }) => ({ x, y })), raw, counts };
     this._cache.set(radiusM, ref);
     return ref;
   }

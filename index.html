@@ -22,6 +22,10 @@
         <span>업종</span>
         <select id="category" required></select>
       </label>
+      <label class="field" id="age-field" hidden>
+        <span>타깃 연령</span>
+        <select id="age"></select>
+      </label>
       <label class="field field-grow">
         <span>주소</span>
         <input id="address" list="address-suggestions" placeholder="예) 강남역, 역삼동 123, 37.4979,127.0276" required />
@@ -63,6 +67,23 @@
           </div>
         </div>
 
+        <div id="demand" class="stats stats-demand" hidden>
+          <div class="stat">
+            <span class="stat-label" id="pop-label">반경 내 인구</span>
+            <span class="stat-value"><b id="pop-count">–</b>명</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">1곳당 인구</span>
+            <span class="stat-value"><b id="pop-per-store">–</b>명</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">인구 대비 경쟁</span>
+            <span id="pop-level" class="level">–</span>
+            <span id="pop-rank" class="stat-sub"></span>
+          </div>
+        </div>
+        <p id="demand-note" class="demand-note" hidden></p>
+
         <p id="headline" class="headline"></p>
         <p id="advice" class="advice"></p>
 
@@ -81,6 +102,7 @@
         </div>
         <p>경쟁 강도: 이 데이터 범위에서 상가가 있는 100m 칸들과 같은 반경·같은 업종 개수를 비교한 순위. 상위 10% 매우높음 · 10–30% 높음 · 30–70% 보통 · 하위 30% 낮음</p>
         <p id="data-source"></p>
+        <p id="pop-source"></p>
       </footer>
     </aside>
   </main>

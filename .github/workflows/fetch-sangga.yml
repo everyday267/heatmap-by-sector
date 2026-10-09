@@ -1,4 +1,4 @@
-# 상가(상권)정보를 GitHub Actions에서 받아 data/gileum2.json으로 커밋한다.
+# 상가(상권)정보와 행정동별 주민등록 인구를 GitHub Actions에서 받아 data/에 커밋한다.
 # 인증키는 저장소 Settings › Secrets and variables › Actions의 DATA_GO_KR_SERVICE_KEY에서만 읽는다.
 #
 # 실행 시점
@@ -15,6 +15,8 @@ on:
       - ".github/workflows/fetch-sangga.yml"
       - "scripts/fetch-sangga.mjs"
       - "scripts/lib/sangga.mjs"
+      - "scripts/fetch-population.mjs"
+      - "scripts/lib/population.mjs"
   schedule:
     - cron: "0 21 5 1,4,7,10 *" # 1·4·7·10월 6일 06:00 KST
 
@@ -65,16 +67,34 @@ jobs:
           npm run --silent fetch:gileum2 | tee fetch.log
           { echo '### 상가정보 수집 결과'; echo '```'; tail -n 5 fetch.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
+      # 인구는 별도 활용신청(15108072)이 필요하다. 실패해도 상가 데이터는 커밋한다.
+      - name: 길음2동 인구 수집
+        id: population
+        if: steps.key.outputs.present == 'true'
+        continue-on-error: true
+        env:
+          DATA_GO_KR_SERVICE_KEY: ${{ secrets.DATA_GO_KR_SERVICE_KEY }}
+        run: |
+          npm run --silent fetch:gileum2:population 2>&1 | tee population.log
+          { echo '### 인구 수집 결과'; echo '```'; tail -n 8 population.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 인구 수집 실패 알림
+        if: steps.key.outputs.present == 'true' && steps.population.outcome == 'failure'
+        run: |
+          echo "::warning::인구 수집에 실패했습니다(상가 데이터는 정상 커밋). 로그의 '인구 수집 결과'를 확인하세요."
+          { echo '### ⚠️ 인구 수집 실패'; echo '```'; tail -n 20 population.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
       - name: 바뀐 데이터 커밋
         if: steps.key.outputs.present == 'true'
         run: |
           git add data/gileum2.json data/datasets.json
+          if [ -f data/gileum2-population.json ]; then git add data/gileum2-population.json; fi
           if git diff --cached --quiet; then
             echo "데이터 변화 없음"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Update Gileum 2-dong sangga snapshot"
+          git commit -m "Update Gileum 2-dong sangga and population snapshot"
           git pull --rebase origin "$GITHUB_REF_NAME"
           git push origin "HEAD:$GITHUB_REF_NAME"

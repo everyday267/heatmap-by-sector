@@ -125,6 +125,8 @@ test("buildDataset: 관심 동 중심 ±boxKm만, 업종·동 집계, 기본값"
   assert.equal(ds.meta.defaults.cat, "I21201");
   assert.equal(ds.meta.defaults.q, "길음2동");
   assert.deepEqual(ds.meta.dongs.map((d) => d.name), ["길음1동", "길음2동"]);
+  // 길음2동 업소 a·b는 약 1.1km 떨어져 서로 다른 100m 칸
+  assert.deepEqual(ds.meta.dongs.map((d) => d.cells), [1, 2]);
   assert.equal(ds.places[0].categoryName, undefined); // 업종명은 categories에서
   assert.ok(ds.meta.bounds.south < 37.605 && ds.meta.bounds.north > 37.605);
 });
@@ -146,4 +148,19 @@ test("buildDataset: 업소번호만 다른 중복 등록은 한 곳으로", () =
   const ds = buildDataset({ items, focusDong: "길음2동" });
   assert.deepEqual(ds.places.map((p) => p.id).sort(), ["d1", "d3", "d4"]);
   assert.equal(ds.meta.duplicatesRemoved, 1);
+});
+
+test("buildDataset: 범위에 걸친 동은 범위 밖 칸까지 세고, 범위 안 업소가 없는 동은 뺀다", () => {
+  const items = [
+    item({ bizesId: "in1", adongNm: "길음2동", lat: 37.605, lon: 127.03 }),
+    item({ bizesId: "edge-in", adongNm: "미아동", lat: 37.612, lon: 127.03 }), // 범위(±1km) 안 (약 780m)
+    item({ bizesId: "edge-out", adongNm: "미아동", lat: 37.625, lon: 127.03 }), // 범위 밖, 같은 동
+    item({ bizesId: "far", adongNm: "장위1동", lat: 37.62, lon: 127.06 }), // 범위 밖뿐인 동
+  ];
+  const ds = buildDataset({ items, focusDong: "길음2동", boxKm: 1 });
+  assert.deepEqual(ds.places.map((p) => p.id).sort(), ["edge-in", "in1"]);
+  assert.deepEqual(
+    ds.meta.dongs.map((d) => [d.name, d.cells]),
+    [["길음2동", 1], ["미아동", 2]],
+  );
 });

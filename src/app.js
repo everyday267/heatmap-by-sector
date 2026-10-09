@@ -4,6 +4,7 @@
 
 import { computeDensity, interpret, formatDistance } from "./geo.js";
 import { DensityBenchmark } from "./benchmark.js";
+import { AGE_GROUPS, PopulationGrid, RECOMMENDED_MIN_RADIUS_M, combinedAdvice } from "./population.js";
 import { StaticPlaceSource } from "./sources/static.js";
 import { SampleGeocoder } from "./sources/sample.js";
 import { ApiGeocoder, ChainGeocoder, DatasetGeocoder } from "./sources/geocoders.js";
@@ -32,7 +33,10 @@ async function loadDataset(params) {
   const manifest = await getJson("data/datasets.json");
   const wanted = params.get("data") ?? manifest.default;
   const entry = manifest.datasets.find((d) => d.id === wanted) ?? manifest.datasets[0];
-  return { manifest, entry, data: await getJson(entry.file) };
+  const data = await getJson(entry.file);
+  // 인구는 선택 사항: 없거나 못 읽으면 인구 대비 칸만 숨긴다.
+  const population = entry.population ? await getJson(entry.population).catch(() => null) : null;
+  return { manifest, entry, data, population };
 }
 
 function makeGeocoder(meta) {
@@ -72,10 +76,11 @@ const inBounds = (b, p) => p.lat >= b.south && p.lat <= b.north && p.lng >= b.we
 
 async function main() {
   const params = new URLSearchParams(location.search);
-  const { manifest, entry, data } = await loadDataset(params);
+  const { manifest, entry, data, population } = await loadDataset(params);
   const { meta } = data;
   const source = new StaticPlaceSource(data);
   const benchmark = new DensityBenchmark(data.places, meta.bounds);
+  const popGrid = population ? new PopulationGrid(data.places, meta.bounds, population, meta.dongs) : null;
   const { geocoder, suggestions, api, hint } = makeGeocoder(meta);
   const categories = await source.categories();
   const categoryByCode = new Map(categories.map((c) => [c.code, c]));
@@ -97,6 +102,20 @@ async function main() {
   $("data-source").textContent = meta.source
     ? `데이터: ${meta.source.name}${meta.coverage?.length ? ` (${meta.coverage.join("·")} 수집)` : ""}`
     : "데이터: scripts/generate-sample.mjs로 만든 가짜 샘플";
+  if (popGrid) {
+    const ym = String(popGrid.meta.ym ?? "").replace(/^(\d{4})(\d{2})$/, "$1.$2");
+    $("pop-source").textContent =
+      `인구: ${popGrid.meta.source?.name ?? "주민등록 인구"} ${ym} 기준. 동 인구를 그 동의 상가가 있는 100m 칸에 고르게 나눈 추정치라 ` +
+      `반경 ${formatDistance(RECOMMENDED_MIN_RADIUS_M)} 이상에서 보세요.` +
+      (popGrid.missingDongs.length ? ` 인구 없는 동: ${popGrid.missingDongs.join(", ")}` : "");
+  }
+
+  // --- 타깃 연령 (인구 데이터가 있을 때만) ---
+  const ageSelect = $("age");
+  $("age-field").hidden = !popGrid;
+  ageSelect.append(
+    ...AGE_GROUPS.filter((g) => !g.bands || popGrid?.hasAges).map((g) => el("option", { value: g.key, textContent: g.label })),
+  );
 
   // --- 컨트롤 채우기: 대분류별 묶음, 업소가 많은 업종 먼저 ---
   const select = $("category");
@@ -161,6 +180,7 @@ async function main() {
       cat,
       q: params.get("q") || meta.defaults?.q || "",
       r: r >= 100 && r <= 2000 ? Math.round(r / 100) * 100 : 500,
+      age: AGE_GROUPS.some((g) => g.key === params.get("age")) ? params.get("age") : "all",
     };
   }
 
@@ -171,6 +191,7 @@ async function main() {
       q: $("address").value.trim(),
       r: radiusInput.value,
     });
+    if (popGrid && ageSelect.value !== "all") p.set("age", ageSelect.value);
     history.replaceState(null, "", `?${p}`);
   }
 
@@ -240,6 +261,7 @@ async function main() {
     const text = interpret(result, category.name, radiusM);
     $("headline").textContent = text.headline;
     $("advice").textContent = text.advice;
+    renderDemand(result, code, radiusM, center);
     $("context-label").value = formatDistance(contextM);
 
     $("nearest-count").textContent = result.count
@@ -260,6 +282,28 @@ async function main() {
 
     renderComparison(byCode, center, radiusM, contextM, code);
     writeUrl();
+  }
+
+  function renderDemand(result, code, radiusM, center) {
+    $("demand").hidden = !popGrid;
+    if (!popGrid) return;
+    const group = AGE_GROUPS.find((g) => g.key === ageSelect.value) ?? AGE_GROUPS[0];
+    const d = popGrid.demand({ center, radiusM, groupKey: group.key, categoryCode: code, count: result.count, benchmark });
+
+    $("pop-label").textContent = group.key === "all" ? "반경 내 인구" : `반경 내 ${group.label}`;
+    $("pop-count").textContent = Math.round(d.pop).toLocaleString("ko-KR");
+    $("pop-per-store").textContent = d.perStore == null ? "–" : Math.round(d.perStore).toLocaleString("ko-KR");
+    const lv = $("pop-level");
+    lv.textContent = d.level ?? "판단 보류";
+    lv.className = `level ${d.level ? `level-${LEVEL_CLASS[d.level]}` : ""}`;
+    $("pop-rank").textContent = d.level ? `이 지역 ${d.label}` : (d.reason ?? "");
+
+    const notes = [];
+    if (radiusM < RECOMMENDED_MIN_RADIUS_M) notes.push(`반경 ${formatDistance(radiusM)}에서는 인구 추정이 거칠어요. ${formatDistance(RECOMMENDED_MIN_RADIUS_M)} 이상을 권합니다.`);
+    $("demand-note").textContent = notes.join(" ");
+    $("demand-note").hidden = !notes.length;
+
+    if (d.level) $("advice").textContent = combinedAdvice(result.level, d.level);
   }
 
   // 반경 안에 많은 업종 상위 N개 (+ 선택 업종이 빠졌으면 맨 아래에 추가).
@@ -318,6 +362,7 @@ async function main() {
     geocodeAndRun({ fit: true });
   });
   select.addEventListener("change", () => run({ fit: false }));
+  ageSelect.addEventListener("change", () => run({ fit: false }));
   radiusInput.addEventListener("change", () => run({ fit: true }));
   map.on("click", (e) => {
     const { lat, lng } = e.latlng;
@@ -332,6 +377,7 @@ async function main() {
   select.value = init.cat;
   $("address").value = init.q;
   radiusInput.value = init.r;
+  ageSelect.value = init.age;
   syncRadiusLabel();
   if (init.q) await geocodeAndRun({ fit: true });
 }
