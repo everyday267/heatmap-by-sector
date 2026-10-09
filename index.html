@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>업종 밀도 지도</title>
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
+  <link rel="stylesheet" href="src/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1>업종 밀도 지도</h1>
+      <span class="badge-sample" title="scripts/generate-sample.mjs로 만든 가짜 데이터입니다">샘플 데이터 · 서울 강남구 일대</span>
+    </div>
+
+    <form id="query-form" class="controls" autocomplete="off">
+      <label class="field">
+        <span>업종</span>
+        <select id="category" required></select>
+      </label>
+      <label class="field field-grow">
+        <span>주소</span>
+        <input id="address" list="address-suggestions" placeholder="예) 강남역, 역삼동 123, 37.4979,127.0276" required />
+        <datalist id="address-suggestions"></datalist>
+      </label>
+      <label class="field field-radius">
+        <span>반경 <output id="radius-label">500m</output></span>
+        <input id="radius" type="range" min="100" max="2000" step="100" value="500" />
+      </label>
+      <button type="submit">분석</button>
+    </form>
+  </header>
+
+  <main class="layout">
+    <section class="map-wrap">
+      <div id="map" aria-label="지도"></div>
+      <div class="map-hint">지도를 클릭하면 그 지점을 중심으로 다시 분석합니다</div>
+    </section>
+
+    <aside class="panel" aria-live="polite">
+      <p id="message" class="message" hidden></p>
+
+      <div id="result" hidden>
+        <p id="place-label" class="place-label"></p>
+
+        <div class="stats">
+          <div class="stat">
+            <span class="stat-label">반경 내 업소</span>
+            <span class="stat-value"><b id="stat-count">–</b>곳</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">밀도</span>
+            <span class="stat-value"><b id="stat-density">–</b>/㎢</span>
+          </div>
+          <div class="stat">
+            <span class="stat-label">경쟁 강도</span>
+            <span id="stat-level" class="level">–</span>
+          </div>
+        </div>
+
+        <p id="headline" class="headline"></p>
+        <p id="advice" class="advice"></p>
+
+        <h2>이 위치의 업종별 비교 <small>반경 내 개수 · 주변 평균 대비</small></h2>
+        <ol id="compare" class="compare"></ol>
+
+        <h2>가까운 업소 <small id="nearest-count"></small></h2>
+        <ol id="nearest" class="nearest"></ol>
+      </div>
+
+      <footer class="panel-foot">
+        <div class="legend">
+          <span>히트맵: 주변 <output id="context-label">2km</output> 동일 업종 분포</span>
+          <span class="legend-bar" aria-hidden="true"></span>
+          <span class="legend-ends"><span>드묾</span><span>밀집</span></span>
+        </div>
+        <p>등급 기준(개/㎢): 낮음 &lt;5 · 보통 5–15 · 높음 15–40 · 매우높음 40+</p>
+      </footer>
+    </aside>
+  </main>
+
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <script src="vendor/leaflet-heat/leaflet-heat.js"></script>
+  <script type="module" src="src/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+{
+  "name": "heatmap-by-sector",
+  "version": "0.1.0",
+  "private": true,
+  "description": "업종과 주소를 넣으면 주변 동일 업종 밀집도를 지도에 보여주는 도구",
+  "type": "module",
+  "scripts": {
+    "start": "node scripts/serve.mjs",
+    "test": "node --test \"test/*.test.mjs\"",
+    "generate:sample": "node scripts/generate-sample.mjs"
+  }
+}
