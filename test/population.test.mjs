@@ -9,7 +9,7 @@ import {
   fetchPopulationByDongCodes,
   toAdmmCd,
 } from "../scripts/lib/population.mjs";
-import { PopulationGrid, combinedAdvice, MIN_POP } from "../src/population.js";
+import { PopulationGrid, combinedAdvice, MIN_POP, normalizeDongName } from "../src/population.js";
 import { DensityBenchmark } from "../src/benchmark.js";
 
 // 행정안전부 API 형식을 흉내 낸 행 (만 나이 10세 단위, 남녀 따로)
@@ -74,6 +74,21 @@ test("aggregateByDong: 통·반 단위 행을 동으로 합친다", () => {
   const d = aggregateByDong(rows);
   assert.deepEqual(d.map((x) => [x.name, x.total]), [["길음1동", 22], ["길음2동", 66]]);
   assert.equal(d[1].ages[3], 6);
+});
+
+test("normalizeDongName: 공식 표기 '제N동'을 상가정보 표기 'N동'으로", () => {
+  assert.equal(normalizeDongName("길음제1동"), "길음1동");
+  assert.equal(normalizeDongName("정릉제4동"), "정릉4동");
+  assert.equal(normalizeDongName("길음1동"), "길음1동");
+  assert.equal(normalizeDongName("제기동"), "제기동");
+  assert.equal(normalizeDongName("번1동"), "번1동");
+  assert.equal(normalizeDongName(" 삼선동 "), "삼선동");
+});
+
+test("aggregateByDong: 이름은 상가정보 표기로, 공식 표기는 따로", () => {
+  const [d] = aggregateByDong([mapPopulationRow(row("길음제2동", 1))]);
+  assert.equal(d.name, "길음2동");
+  assert.equal(d.officialName, "길음제2동");
 });
 
 test("recentMonths: 전월부터 거슬러 올라감 (연도 넘김)", () => {
@@ -176,6 +191,14 @@ test("PopulationGrid: 동 인구를 그 동의 상가 칸에 고르게, 범위 �
   assert.ok(Math.abs(g.popWithin(at(2550, 2550), 100, "20") - 1000 / 11) < 1e-6);
   assert.ok(Math.abs(g.popWithin(at(2550, 2550), 100, "20-30") - 2000 / 11) < 1e-6);
   assert.equal(g.popWithin(at(1500, 1500), 50), 0); // 인구 없는 동
+});
+
+test("PopulationGrid: 인구 파일이 공식 표기('길음제2동')여도 상가 동('길음2동')과 맞춘다", () => {
+  const g = new PopulationGrid([at(150, 150, "길음2동")], B, pop([{ name: "길음제2동", total: 500, ages: ages(500 / 11) }]), [
+    { name: "길음2동", cells: 1 },
+  ]);
+  assert.deepEqual(g.missingDongs, []);
+  assert.ok(Math.abs(g.popWithin(at(150, 150), 100) - 500) < 1e-6);
 });
 
 test("PopulationGrid.demand: 인구에 비해 가게가 많은 곳일수록 높은 순위", () => {

@@ -23,6 +23,12 @@ export const AGE_GROUPS = [
   { key: "40-50", label: "40~50대", bands: [4, 5] },
   { key: "60+", label: "60대 이상", bands: [6, 7, 8, 9, 10] },
 ];
+/**
+ * 행정동 이름 표기 통일. 주민등록 인구는 공식 표기("길음제1동"), 상가정보는 줄임 표기("길음1동")를 쓴다.
+ * 숫자 앞의 "제"만 뗀다 ("제기동"처럼 이름이 제로 시작하는 동은 그대로).
+ */
+export const normalizeDongName = (name) => String(name ?? "").trim().replace(/제(\d+)동$/, "$1동");
+
 const groupOf = (key) => AGE_GROUPS.find((g) => g.key === key) ?? AGE_GROUPS[0];
 
 export class PopulationGrid {
@@ -52,13 +58,13 @@ export class PopulationGrid {
     const cellDong = new Map();
     const viewCells = new Map(); // 동 → 범위 안 칸 수
     for (const [key, v] of votes) {
-      const dong = [...v.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0];
+      const dong = normalizeDongName([...v.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0]);
       cellDong.set(key, dong);
       viewCells.set(dong, (viewCells.get(dong) ?? 0) + 1);
     }
 
-    const popByDong = new Map(population.dongs.map((d) => [d.name, d]));
-    const totalCells = new Map(dongMeta.map((d) => [d.name, d.cells]));
+    const popByDong = new Map(population.dongs.map((d) => [normalizeDongName(d.name), d]));
+    const totalCells = new Map(dongMeta.map((d) => [normalizeDongName(d.name), d.cells]));
     this.missingDongs = [...viewCells.keys()].filter((n) => !popByDong.has(n)).sort();
 
     this.cells = [];

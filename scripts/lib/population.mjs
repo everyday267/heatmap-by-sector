@@ -5,6 +5,7 @@
 // 응답은 항목 이름을 넓게 받아들이도록 썼다. 형식이 다르면 실제 항목 이름을 출력하고 멈춘다.
 
 import { normalizeServiceKey, throwIfGatewayError } from "./sangga.mjs";
+import { normalizeDongName } from "../../src/population.js";
 
 export const POP_API = "https://apis.data.go.kr/1741000/admmSexdAgePpltn/selectAdmmSexdAgePpltn";
 const PAGE_SIZE = 100; // API 최대값
@@ -65,14 +66,15 @@ export function mapPopulationRow(row, fallbackDong) {
   return { dong, total, ages, hasAges: ageFields > 0, named: Boolean(dongKey) };
 }
 
-/** 통·반 단위 행이 와도 동 이름으로 합친다. */
+/** 통·반 단위 행이 와도 동 이름으로 합친다. 이름은 상가정보 표기("길음1동")로 맞추고 공식 표기는 officialName에. */
 export function aggregateByDong(rows) {
   const byDong = new Map();
   for (const r of rows) {
-    const d = byDong.get(r.dong) ?? { name: r.dong, total: 0, ages: new Array(AGE_BANDS).fill(0) };
+    const name = normalizeDongName(r.dong);
+    const d = byDong.get(name) ?? { name, officialName: r.dong, total: 0, ages: new Array(AGE_BANDS).fill(0) };
     d.total += r.total;
     r.ages.forEach((v, i) => (d.ages[i] += v));
-    byDong.set(r.dong, d);
+    byDong.set(name, d);
   }
   return [...byDong.values()].sort((a, b) => a.name.localeCompare(b.name, "ko"));
 }
@@ -174,7 +176,9 @@ export async function fetchPopulationByDongCodes(dongs, { serviceKey, ym, fetchI
     const res = await requestRows({ admmCd: toAdmmCd(d.code), ym, lv, serviceKey, fetchImpl, fallbackDong: d.name });
     const mapped = res.rows.map((r) => mapPopulationRow(r, d.name)).filter(Boolean);
     // 동 이름이 붙은 행이 오면 그 동 것만, 이름 없는 행(통·반)만 오면 전부 이 동으로 합친다.
-    const mine = mapped.some((r) => r.named) ? mapped.filter((r) => r.dong === d.name) : mapped;
+    const mine = mapped.some((r) => r.named)
+      ? mapped.filter((r) => normalizeDongName(r.dong) === normalizeDongName(d.name))
+      : mapped;
     const [agg] = aggregateByDong(mine.map((r) => ({ ...r, dong: d.name })));
     return { agg, rows: res.rows.length, snippet: res.snippet, hasAges: mine.some((r) => r.hasAges) };
   };

@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { loadEnv } from "./lib/env.mjs";
 import { fetchDongPopulation, fetchPopulationByDongCodes, recentMonths } from "./lib/population.mjs";
+import { normalizeDongName } from "../src/population.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const DATA = join(ROOT, "data");
@@ -74,8 +75,8 @@ if (!result) {
 }
 
 // 상가 데이터의 행정동 이름과 맞춰 본다.
-const storeDongs = new Set(dataset.meta.dongs.map((d) => d.name));
-const popDongs = new Set(result.dongs.map((d) => d.name));
+const storeDongs = new Set(dataset.meta.dongs.map((d) => normalizeDongName(d.name)));
+const popDongs = new Set(result.dongs.map((d) => normalizeDongName(d.name)));
 const missingPop = [...storeDongs].filter((n) => !popDongs.has(n));
 
 const file = `data/${args.id}-population.json`;
