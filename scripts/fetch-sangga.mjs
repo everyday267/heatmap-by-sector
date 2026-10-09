@@ -88,7 +88,7 @@ console.log(
     `✔ ${file}`,
     `  관심 지역: ${m.focus.name} (${m.focus.lat}, ${m.focus.lng})`,
     `  범위 ±${args["box-km"]}km 안 업소 ${m.count.toLocaleString()}곳 · 업종(소분류) ${dataset.categories.length}개`,
-    `  수집 범위: ${m.coverage.join(", ")} · 기준월 ${m.stdrYm ?? "?"} · 좌표 없는 업소 ${m.skippedNoCoords}건 제외`,
+    `  수집 범위: ${m.coverage.join(", ")} · 기준월 ${m.stdrYm ?? "?"} · 좌표 없는 업소 ${m.skippedNoCoords}건 · 중복 등록 ${m.duplicatesRemoved}건 제외`,
     `  업종 상위: ${dataset.categories.slice(0, 5).map((c) => `${c.name} ${c.count}`).join(", ")}`,
   ].join("\n"),
 );

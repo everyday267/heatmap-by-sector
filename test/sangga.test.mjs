@@ -135,3 +135,15 @@ test("buildDataset: 관심 동이 없으면 받은 동 목록과 함께 실패",
     /길음2동.*길음1동/,
   );
 });
+
+test("buildDataset: 업소번호만 다른 중복 등록은 한 곳으로", () => {
+  const items = [
+    item({ bizesId: "d1", bizesNm: "강북세일학원", indsSclsCd: "P10501", lat: 37.605, lon: 127.03 }),
+    item({ bizesId: "d2", bizesNm: "강북세일 학원", indsSclsCd: "P10501", lat: 37.605000004, lon: 127.03 }),
+    item({ bizesId: "d3", bizesNm: "강북세일학원", indsSclsCd: "P10501", lat: 37.6052, lon: 127.03 }), // 20m 떨어진 다른 곳
+    item({ bizesId: "d4", bizesNm: "강북세일학원", indsSclsCd: "P10502", lat: 37.605, lon: 127.03 }), // 다른 업종
+  ];
+  const ds = buildDataset({ items, focusDong: "길음2동" });
+  assert.deepEqual(ds.places.map((p) => p.id).sort(), ["d1", "d3", "d4"]);
+  assert.equal(ds.meta.duplicatesRemoved, 1);
+});

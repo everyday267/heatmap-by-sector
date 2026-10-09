@@ -127,7 +127,15 @@ export function buildDataset({ items, id, label, focusDong, boxKm = 3, coverage 
     if (p) byId.set(p.id, p);
     else skipped++;
   }
-  const all = [...byId.values()];
+  // 원본에는 같은 가게가 업소번호만 달리해 여러 번 등록된 경우가 있다(같은 학원 6건 등).
+  // 이름·업종·좌표(약 1m)가 모두 같으면 한 곳으로 센다.
+  const byStore = new Map();
+  for (const p of byId.values()) {
+    const key = [p.name.replace(/\s+/g, ""), p.categoryCode, p.lat.toFixed(5), p.lng.toFixed(5)].join("|");
+    if (!byStore.has(key)) byStore.set(key, p);
+  }
+  const all = [...byStore.values()];
+  const duplicates = byId.size - all.length;
 
   // 행정동별 업소 중심점 → 지오코딩(동 이름 검색)과 관심 지역 중심에 쓴다.
   const dongAgg = new Map();
@@ -190,6 +198,7 @@ export function buildDataset({ items, id, label, focusDong, boxKm = 3, coverage 
       defaults: { q: focus.name, cat: (cafe ?? categories[0])?.code },
       count: places.length,
       skippedNoCoords: skipped,
+      duplicatesRemoved: duplicates,
     },
     categories,
     // 업종명·대분류는 categories에서 채우므로 업소에는 코드만 남긴다.
