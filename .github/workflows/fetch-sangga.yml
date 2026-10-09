@@ -1,0 +1,80 @@
+# 상가(상권)정보를 GitHub Actions에서 받아 data/gileum2.json으로 커밋한다.
+# 인증키는 저장소 Settings › Secrets and variables › Actions의 DATA_GO_KR_SERVICE_KEY에서만 읽는다.
+#
+# 실행 시점
+#   - 수동: Actions 탭 › "Fetch sangga data" › Run workflow
+#   - 수집 로직(스크립트·이 파일)이 바뀐 커밋이 push될 때
+#   - 분기마다(상가정보 갱신 주기) 기본 브랜치에서
+
+name: Fetch sangga data
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/fetch-sangga.yml"
+      - "scripts/fetch-sangga.mjs"
+      - "scripts/lib/sangga.mjs"
+  schedule:
+    - cron: "0 21 5 1,4,7,10 *" # 1·4·7·10월 6일 06:00 KST
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fetch-sangga-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash # 명시해야 -o pipefail이 켜져 `수집 | tee` 실패가 묻히지 않는다
+    steps:
+      - name: 인증키 확인
+        id: key
+        env:
+          DATA_GO_KR_SERVICE_KEY: ${{ secrets.DATA_GO_KR_SERVICE_KEY }}
+        run: |
+          if [ -z "$DATA_GO_KR_SERVICE_KEY" ]; then
+            echo "::warning::DATA_GO_KR_SERVICE_KEY 시크릿이 없어 수집을 건너뜁니다. Settings › Secrets and variables › Actions에 등록한 뒤 다시 실행하세요."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.key.outputs.present == 'true'
+
+      - uses: actions/setup-node@v4
+        if: steps.key.outputs.present == 'true'
+        with:
+          node-version: 22
+
+      - name: 테스트
+        if: steps.key.outputs.present == 'true'
+        run: npm test
+
+      - name: 길음2동 수집
+        if: steps.key.outputs.present == 'true'
+        env:
+          DATA_GO_KR_SERVICE_KEY: ${{ secrets.DATA_GO_KR_SERVICE_KEY }}
+        run: |
+          npm run --silent fetch:gileum2 | tee fetch.log
+          { echo '### 상가정보 수집 결과'; echo '```'; tail -n 5 fetch.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 바뀐 데이터 커밋
+        if: steps.key.outputs.present == 'true'
+        run: |
+          git add data/gileum2.json data/datasets.json
+          if git diff --cached --quiet; then
+            echo "데이터 변화 없음"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Update Gileum 2-dong sangga snapshot"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"

@@ -31,6 +31,7 @@ npm test           # 단위 테스트
 키는 **채팅이나 코드에 붙여 넣지 말고** 아래 중 한 곳에 넣습니다. 둘 다 git에 올라가지 않습니다.
 
 - **내 컴퓨터**: `.env.example`을 `.env`로 복사해 값을 채웁니다.
+- **GitHub Actions** (권장): 저장소 Settings › Secrets and variables › Actions › New repository secret에 `DATA_GO_KR_SERVICE_KEY`를 등록하고, Actions 탭 › "Fetch sangga data" › Run workflow. Actions가 수집해 `data/gileum2.json`을 커밋하므로, 이후엔 pull만 받으면 됩니다. 분기마다 자동으로 다시 수집합니다. 카카오 키는 화면을 띄우는 쪽(로컬 서버)에서 쓰므로 GitHub Secrets가 아니라 `.env`에 넣습니다.
 - **Claude Code 클라우드 세션**: 세션 상단의 클라우드 환경 메뉴 › Edit › 환경변수(또는 Network secrets)에 같은 이름으로 넣고, Network access의 허용 도메인에 `apis.data.go.kr`, `dapi.kakao.com`을 추가합니다. 새 세션부터 적용됩니다.
 
 카카오 키는 `npm start`의 로컬 서버만 쓰고 브라우저로는 보내지 않습니다(`/api/geocode` 프록시). 키가 없어도 행정동 이름(`길음2동`), 좌표, 지도 클릭으로 분석할 수 있습니다.
